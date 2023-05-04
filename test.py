@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import cv2 as cv
 import numpy as np
 from collections import defaultdict
+from typing import Callable
+from scipy.interpolate import interp1d
+from dataclasses import dataclass
 
 INPUT_SIZE = (640, 480)
 OUTPUT_SIZE = (640, 380)
@@ -12,7 +17,7 @@ def draw_lines(img, lines: list[list[list[int]]], color: tuple[int, int, int]):
     """Draws some lines (list of [[int, int, int, int]]) on an image."""
     for line in lines:
         x1, y1, x2, y2 = line[0]
-        cv.line(img, (x1, y1), (x2, y2), color, 15)
+        cv.line(img, (x1, y1), (x2, y2), color, 5)
 
 
 SECTION_SIZE = 6
@@ -50,6 +55,10 @@ def get_line_coords(lines: list[list[list[int]]]) -> dict[int, int]:
     return {key: round(np.average(list(vals))) for key, vals in rows.items()}
 
 
+def smooth_line(line: dict[int, int]) -> Callable[[np.ndarray], list[int]]:
+    return interp1d(line.values(), line.keys(), kind="cubic")
+
+
 def make_sections(img, left_lines: dict[int, int], right_lines: dict[int, int]):
     """Takes two dicts mapping y coords to x coords.
     One set of points acts as the left ends of horizontal lines.
@@ -68,12 +77,68 @@ def make_sections(img, left_lines: dict[int, int], right_lines: dict[int, int]):
         cv.line(img, (left, y), (right, y), (0, 255, 0), SECTION_THICKNESS)
 
 
+@dataclass
+class Vision:
+    """Contains the data on what has been seen."""
+
+    left: list[Line]
+    """Left lines."""
+    right: list[Line]
+    """Right lines."""
+
+    def __init__(self):
+        self.left = []
+        self.right = []
+
+
+@dataclass
+class Line:
+    """Describes a boundary line."""
+
+    start: tuple[int, int]
+    """Start x,y coords"""
+    end: tuple[int, int]
+    """End x,y coords"""
+    gradient: float
+    """Points on this line"""
+    _xrange: range
+    _yrange: range
+
+    def __init__(self, start: tuple[int, int], end: tuple[int, int]) -> None:
+        self.start = start
+        self.end = end
+        self.gradient = (start[1] - end[1]) / (start[0] - end[0])
+        self._xrange = range(
+            start[0], end[0] if start[0] < end[0] else end[0], start[0]
+        )
+        self._yrange = range(
+            start[1], end[1] if start[1] < end[1] else end[1], start[1]
+        )
+
+    def contains(self, point: tuple[int, int]) -> bool:
+        """Returns true if the point lies roughly on the line."""
+        if point[0] in self._xrange and point[1] in self._yrange:
+            gradient = (self.start[0] - point[0]) / (self.start[1] - point[1])
+            diff = np.positive(self.gradient - gradient) / self.gradient
+            return diff < 1
+        else:
+            return False
+
+    @classmethod
+    def from_hough(cls, line: list[int]) -> Line:
+        return cls(tuple(line[:2]), tuple(line[2:]))
+
+
+YELLOW_BOUNDS = [np.array([23, 20, 20]), np.array([37, 255, 255])]
+BLUE_BOUNDS = [np.array([105, 40, 40]), np.array([135, 255, 255])]
+
 cap = cv.VideoCapture("/home/linus/media/track.mp4")
 writer = cv.VideoWriter(
     "/home/linus/media/lines.mp4", cv.VideoWriter_fourcc(*"mp4v"), 30, DEBUG_SIZE, True
 )
+vis = Vision()
 count = 0
-while cap.isOpened():
+while count < 200:
     count += 1
     is_next, frame = cap.read()
     if not is_next:
@@ -83,15 +148,12 @@ while cap.isOpened():
     center_x = frame.shape[1] // 2
 
     # Masking
-    lower_yellow, upper_yellow = np.array([23, 20, 20]), np.array([37, 255, 255])
-    lower_blue, upper_blue = np.array([105, 40, 40]), np.array([135, 255, 255])
-
-    yellow_mask = cv.inRange(frame, lower_yellow, upper_yellow)
-    blue_mask = cv.inRange(frame, lower_blue, upper_blue)
+    yellow_mask = cv.inRange(frame, *YELLOW_BOUNDS)
+    blue_mask = cv.inRange(frame, *BLUE_BOUNDS)
     combined_mask = np.bitwise_or(yellow_mask, blue_mask)
 
     yellow_lines = cv.HoughLinesP(
-        yellow_mask, 1, np.pi / 180, 100, minLineLength=20, maxLineGap=20
+        yellow_mask, 1, np.pi / 180, 100, minLineLength=20, maxLineGap=50
     )
     blue_lines = cv.HoughLinesP(
         blue_mask, 1, np.pi / 180, 100, minLineLength=20, maxLineGap=20
