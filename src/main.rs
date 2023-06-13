@@ -4,13 +4,34 @@ mod tests;
 use std::collections::VecDeque;
 
 use opencv::{
-    core::{in_range, Point, Rect, Scalar, Vector},
+    core::{in_range, Point, Rect, Scalar, Size, Vector},
     imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_HSV2BGR, LINE_8},
     prelude::*,
-    videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait},
+    videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
 
-fn main() {}
+fn main() {
+    let mut cap = VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY)
+        .expect("Failed to read track video file.");
+    let mut out = VideoWriter::new(
+        "/home/linus/media/lines.mp4",
+        VideoWriter::fourcc('m', 'p', '4', 'v').unwrap(),
+        30.0,
+        Size::new(640, 480),
+        true,
+    )
+    .expect("Failed to open lines video file for writing.");
+    read(
+        &mut cap,
+        &mut out,
+        Rect {
+            x: 0,
+            y: 100,
+            width: 640,
+            height: 380,
+        },
+    );
+}
 
 pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
     let left_lower_hsv: Vector<u8> = Vector::from(vec![23, 40, 40]);
@@ -21,7 +42,6 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
 
     let mut bgr_img = Mat::default();
     let mut hsv_img = Mat::default();
-    let mut hsv_roi = Mat::default();
     let mut left_mask = Mat::default();
     let mut right_mask = Mat::default();
 
@@ -35,7 +55,8 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
 
         cvt_color(&mut bgr_img, &mut hsv_img, COLOR_BGR2HSV, 0)
             .expect("Failed to convert img to HSV");
-        hsv_roi = Mat::roi(&hsv_img, roi.clone()).expect("Failed to slice region of HSV img.");
+        let mut hsv_roi =
+            Mat::roi(&hsv_img, roi.clone()).expect("Failed to slice region of HSV img.");
 
         // Apply yellow/blue color threshold
         in_range(
@@ -53,27 +74,8 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
         )
         .expect("Failed to apply right line colour threshold");
 
-        for row_num in (0..left_mask.rows()).step_by(4) {
-            let row = left_mask
-                .row(row_num)
-                .expect(&format!("Left mask does have a row {}", row_num));
-
-            for x_val in row_cluster_cols(row) {
-                circle(
-                    &mut hsv_roi,
-                    Point {
-                        x: x_val.into(),
-                        y: row_num,
-                    },
-                    2,
-                    Scalar::new(240 as f64, 100 as f64, 100 as f64, 0 as f64),
-                    -1,
-                    LINE_8,
-                    0,
-                )
-                .expect("Failed to draw circle on image.");
-            }
-        }
+        draw_clusters(&mut hsv_roi, &mut left_mask);
+        draw_clusters(&mut hsv_roi, &mut right_mask);
 
         let mut bgr_img_final = Mat::default();
         cvt_color(&hsv_img, &mut bgr_img_final, COLOR_HSV2BGR, 0).unwrap();
@@ -82,6 +84,30 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
         println!("Wrote frame number {}", frame);
     }
     out.release().unwrap();
+}
+
+fn draw_clusters(img: &mut Mat, src: &mut Mat) {
+    for row_num in (0..src.rows()).step_by(4) {
+        let row = src
+            .row(row_num)
+            .expect(&format!("Left mask does have a row {}", row_num));
+
+        for x_val in row_cluster_cols(row) {
+            circle(
+                img,
+                Point {
+                    x: x_val.into(),
+                    y: row_num,
+                },
+                5,
+                Scalar::new(240 as f64, 100 as f64, 100 as f64, 255 as f64),
+                -1,
+                LINE_8,
+                0,
+            )
+            .expect("Failed to draw circle on image.");
+        }
+    }
 }
 
 const HORIZONTAL_BUF_SIZE: usize = 5;
@@ -109,6 +135,7 @@ fn row_cluster_cols(row: Mat) -> Vec<u16> {
         }
         buffer.pop_front();
 
+        // TODO optimise line below
         if buffer.iter().all(|e| e == &buffer[0]) {
             // All elem true
             if buffer[0] == true {
