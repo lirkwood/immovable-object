@@ -1,10 +1,5 @@
-[package]
-name = "uts-drc-2023"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-opencv = "0.82.1"
-
-[profile.release]
-debug = true
+[workspace]
+members = [
+    "img",
+    "motor"
+]
