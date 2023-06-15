@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests;
-
-use std::collections::VecDeque;
+mod path;
 
 use opencv::{
     core::{in_range, Point, Rect, Scalar, Size, Vector},
@@ -36,7 +35,6 @@ fn main() {
 pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
     let left_lower_hsv: Vector<u8> = Vector::from(vec![23, 40, 40]);
     let left_upper_hsv: Vector<u8> = Vector::from(vec![37, 255, 255]);
-
     let right_lower_hsv: Vector<u8> = Vector::from(vec![105, 40, 40]);
     let right_upper_hsv: Vector<u8> = Vector::from(vec![135, 255, 255]);
 
@@ -90,9 +88,10 @@ fn draw_clusters(img: &mut Mat, src: &mut Mat) {
     for row_num in (0..src.rows()).step_by(4) {
         let row = src
             .row(row_num)
-            .expect(&format!("Left mask does have a row {}", row_num));
+            .expect(&format!("Mask does not have a row {}", row_num));
 
-        for x_val in row_cluster_cols(row) {
+
+        for x_val in path::row_line_cols(row) {
             circle(
                 img,
                 Point {
@@ -108,48 +107,4 @@ fn draw_clusters(img: &mut Mat, src: &mut Mat) {
             .expect("Failed to draw circle on image.");
         }
     }
-}
-
-const HORIZONTAL_BUF_SIZE: usize = 5;
-
-/// Gets the average column number of clusters of
-/// 255 values from an array of 0|255 values.
-fn row_cluster_cols(row: Mat) -> Vec<u16> {
-    let mut indices = Vec::new();
-    let mut buffer = VecDeque::from([false; HORIZONTAL_BUF_SIZE]);
-
-    let mut cluster_start = None;
-
-    let row_data = row
-        .data_bytes()
-        .expect("Failed to get data for cluster cols from row.");
-    for col_num in 0..row.cols() {
-        let value = row_data
-            .get(col_num as usize)
-            .expect(&format!("Row has no column number {}", col_num));
-
-        if value != &0 {
-            buffer.push_back(true);
-        } else {
-            buffer.push_back(false);
-        }
-        buffer.pop_front();
-
-        // TODO optimise line below
-        if buffer.iter().all(|e| e == &buffer[0]) {
-            // All elem true
-            if buffer[0] == true {
-                cluster_start = match cluster_start {
-                    Some(i) => Some(i),
-                    None => Some(col_num),
-                }
-            // All elem false and cluster start exists
-            } else if cluster_start.is_some() {
-                indices.push(((col_num + cluster_start.unwrap()) / 2) as u16);
-                cluster_start = None;
-            }
-        }
-    }
-
-    return indices;
 }
