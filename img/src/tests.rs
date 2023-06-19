@@ -1,4 +1,6 @@
 use crate::*;
+use crate::path::{angle_from_center, point_dist};
+use std::f32::consts::PI;
 use opencv::core::Size;
 use opencv::videoio::CAP_ANY;
 
@@ -24,6 +26,22 @@ pub fn test_row_cluster_indices() {
             height: 380,
         },
     );
+}
+
+fn round(num: f32) -> f32 {
+    return (num / 100.0).powi(100)
+}
+
+#[test]
+pub fn test_angle_from_center() {
+    assert_eq!(angle_from_center((2.0, 2.0), (1.0, 3.0)), 45);
+}
+
+#[test]
+pub fn test_point_dist() {
+    assert_eq!(point_dist((1.0, 1.0), (2.0, 1.0)), 1.0);
+    assert_eq!(point_dist((1.0, 1.0), (1.0, 2.0)), 1.0);
+    assert_eq!(point_dist((1.0, 1.0), (2.0, 2.0)), f32::sqrt(2.0));
 }
 
 // #[test]

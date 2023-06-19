@@ -1,6 +1,6 @@
+mod path;
 #[cfg(test)]
 mod tests;
-mod path;
 
 use opencv::{
     core::{in_range, Point, Rect, Scalar, Size, Vector},
@@ -8,6 +8,7 @@ use opencv::{
     prelude::*,
     videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
+use path::Pathfinder;
 
 fn main() {
     let mut cap = VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY)
@@ -33,6 +34,8 @@ fn main() {
 }
 
 pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
+    let pf = Pathfinder::new((roi.width as u32, roi.height as u32));
+
     let left_lower_hsv: Vector<u8> = Vector::from(vec![23, 40, 40]);
     let left_upper_hsv: Vector<u8> = Vector::from(vec![37, 255, 255]);
     let right_lower_hsv: Vector<u8> = Vector::from(vec![105, 40, 40]);
@@ -40,6 +43,7 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
 
     let mut bgr_img = Mat::default();
     let mut hsv_img = Mat::default();
+    let mut bgr_img_final = Mat::default();
     let mut left_mask = Mat::default();
     let mut right_mask = Mat::default();
 
@@ -72,11 +76,25 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
         )
         .expect("Failed to apply right line colour threshold");
 
-        draw_clusters(&mut hsv_roi, &mut left_mask);
-        draw_clusters(&mut hsv_roi, &mut right_mask);
+        // draw_clusters(&mut hsv_roi, &mut left_mask);
+        // draw_clusters(&mut hsv_roi, &mut right_mask);
+        let center_pts = pf.read_frame(&left_mask, &right_mask);
 
-        let mut bgr_img_final = Mat::default();
         cvt_color(&hsv_img, &mut bgr_img_final, COLOR_HSV2BGR, 0).unwrap();
+
+        for pt in center_pts {
+            circle(
+                &mut bgr_img_final,
+                Point::from((pt.0 as i32, pt.1 as i32 + 100)),
+                5,
+                Scalar::new(0 as f64, 255 as f64, 0 as f64, 255 as f64),
+                -1,
+                LINE_8,
+                0,
+            )
+            .expect("Failed to draw center point.");
+        }
+
         out.write(&bgr_img_final)
             .expect("Failed to write video frame.");
         println!("Wrote frame number {}", frame);
@@ -89,7 +107,6 @@ fn draw_clusters(img: &mut Mat, src: &mut Mat) {
         let row = src
             .row(row_num)
             .expect(&format!("Mask does not have a row {}", row_num));
-
 
         for x_val in path::row_line_cols(row) {
             circle(
