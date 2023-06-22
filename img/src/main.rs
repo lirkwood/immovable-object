@@ -4,7 +4,7 @@ mod tests;
 
 use opencv::{
     core::{bitwise_or, in_range, Point, Rect, Size, VecN, Vector},
-    imgproc::{circle, cvt_color, COLOR_BGR2HSV, LINE_8, COLOR_GRAY2RGB},
+    imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_GRAY2RGB, LINE_8},
     prelude::*,
     videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
@@ -31,9 +31,17 @@ fn main() {
             Ok(true) => {}
             _ => break,
         }
+        if frame > 1000 {
+            break;
+        }
 
         let angle = pf.consider_frame(&bgr_img);
-        draw_ray(&mut bgr_img, angle, VecN([0.0, 255.0, 0.0, 255.0]));
+        draw_ray(&mut bgr_img, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
+        // draw_ray(&mut bgr_img, &-70.0, VecN([255.0, 0.0, 0.0, 255.0]));
+        // draw_ray(&mut bgr_img, &70.0, VecN([0.0, 255.0, 0.0, 255.0]));
+        // draw_ray(&mut bgr_img, &-45.0, VecN([255.0, 0.0, 0.0, 255.0]));
+        // draw_ray(&mut bgr_img, &45.0, VecN([0.0, 255.0, 0.0, 255.0]));
+        // draw_ray(&mut bgr_img, &0.0, VecN([0.0, 255.0, 0.0, 255.0]));
         out.write(&bgr_img).unwrap();
         println!("Frame {frame}");
     }
@@ -106,7 +114,7 @@ fn draw_ray(img: &mut Mat, angle: &path::Angle, color: VecN<f64, 4>) {
     for point in path::cast_ray(&img.cols(), &img.rows(), &(angle)) {
         circle(
             img,
-            Point::from((point % img.cols(), point / img.cols())),
+            Point::from(path::img_index_to_coord(&img.cols(), &point)),
             5,
             color,
             -1,
