@@ -1,40 +1,35 @@
 use crate::*;
-use crate::path::{angle_from_center, point_dist};
-use std::f32::consts::PI;
+use crate::path::{vertical_angle_to_point, point_dist};
 use opencv::core::Size;
 use opencv::videoio::CAP_ANY;
 
-#[test]
-pub fn test_row_cluster_indices() {
-    let mut cap = VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY)
-        .expect("Failed to read track video file.");
-    let mut out = VideoWriter::new(
-        "/home/linus/media/lines.mp4",
-        VideoWriter::fourcc('m', 'p', '4', 'v').unwrap(),
-        30.0,
-        Size::new(640, 480),
-        true,
-    )
-    .expect("Failed to open lines video file for writing.");
-    read(
-        &mut cap,
-        &mut out,
-        Rect {
-            x: 0,
-            y: 100,
-            width: 640,
-            height: 380,
-        },
-    );
-}
-
-fn round(num: f32) -> f32 {
-    return (num / 100.0).powi(100)
-}
+// #[test]
+// pub fn test_row_cluster_indices() {
+//     let mut cap = VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY)
+//         .expect("Failed to read track video file.");
+//     let mut out = VideoWriter::new(
+//         "/home/linus/media/lines.mp4",
+//         VideoWriter::fourcc('m', 'p', '4', 'v').unwrap(),
+//         30.0,
+//         Size::new(640, 480),
+//         true,
+//     )
+//     .expect("Failed to open lines video file for writing.");
+//     read(
+//         &mut cap,
+//         &mut out,
+//         Rect {
+//             x: 0,
+//             y: 100,
+//             width: 640,
+//             height: 380,
+//         },
+//     );
+// }
 
 #[test]
 pub fn test_angle_from_center() {
-    assert_eq!(angle_from_center((2.0, 2.0), (1.0, 3.0)), 45);
+    assert_eq!(vertical_angle_to_point((2.0, 2.0), (1.0, 3.0)), 45.0);
 }
 
 #[test]
