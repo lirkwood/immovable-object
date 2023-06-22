@@ -3,8 +3,8 @@ mod path;
 mod tests;
 
 use opencv::{
-    core::{in_range, Point, Rect, Scalar, Size, Vector},
-    imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_HSV2BGR, LINE_8},
+    core::{bitwise_or, in_range, Point, Rect, Size, VecN, Vector},
+    imgproc::{circle, cvt_color, COLOR_BGR2HSV, LINE_8, COLOR_GRAY2RGB},
     prelude::*,
     videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
@@ -21,32 +21,9 @@ fn main() {
         true,
     )
     .expect("Failed to open lines video file for writing.");
-    read(
-        &mut cap,
-        &mut out,
-        Rect {
-            x: 0,
-            y: 100,
-            width: 640,
-            height: 380,
-        },
-    );
-}
-
-pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
-    let pf = Pathfinder::new((roi.width as u32, roi.height as u32));
-
-    let left_lower_hsv: Vector<u8> = Vector::from(vec![23, 40, 40]);
-    let left_upper_hsv: Vector<u8> = Vector::from(vec![37, 255, 255]);
-    let right_lower_hsv: Vector<u8> = Vector::from(vec![105, 40, 40]);
-    let right_upper_hsv: Vector<u8> = Vector::from(vec![135, 255, 255]);
 
     let mut bgr_img = Mat::default();
-    let mut hsv_img = Mat::default();
-    let mut bgr_img_final = Mat::default();
-    let mut left_mask = Mat::default();
-    let mut right_mask = Mat::default();
-
+    let mut pf = Pathfinder::new();
     let mut frame = 0;
     loop {
         frame += 1;
@@ -55,73 +32,87 @@ pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
             _ => break,
         }
 
-        cvt_color(&mut bgr_img, &mut hsv_img, COLOR_BGR2HSV, 0)
-            .expect("Failed to convert img to HSV");
-        let mut hsv_roi =
-            Mat::roi(&hsv_img, roi.clone()).expect("Failed to slice region of HSV img.");
-
-        // Apply yellow/blue color threshold
-        in_range(
-            &mut hsv_roi,
-            &left_lower_hsv,
-            &left_upper_hsv,
-            &mut left_mask,
-        )
-        .expect("Failed to apply left line colour threshold");
-        in_range(
-            &mut hsv_roi,
-            &right_lower_hsv,
-            &right_upper_hsv,
-            &mut right_mask,
-        )
-        .expect("Failed to apply right line colour threshold");
-
-        // draw_clusters(&mut hsv_roi, &mut left_mask);
-        // draw_clusters(&mut hsv_roi, &mut right_mask);
-        let center_pts = pf.read_frame(&left_mask, &right_mask);
-
-        cvt_color(&hsv_img, &mut bgr_img_final, COLOR_HSV2BGR, 0).unwrap();
-
-        for pt in center_pts {
-            circle(
-                &mut bgr_img_final,
-                Point::from((pt.0 as i32, pt.1 as i32 + 100)),
-                5,
-                Scalar::new(0 as f64, 255 as f64, 0 as f64, 255 as f64),
-                -1,
-                LINE_8,
-                0,
-            )
-            .expect("Failed to draw center point.");
-        }
-
-        out.write(&bgr_img_final)
-            .expect("Failed to write video frame.");
-        println!("Wrote frame number {}", frame);
+        let angle = pf.consider_frame(&bgr_img);
+        draw_ray(&mut bgr_img, angle, VecN([0.0, 255.0, 0.0, 255.0]));
+        out.write(&bgr_img).unwrap();
+        println!("Frame {frame}");
     }
-    out.release().unwrap();
 }
 
-fn draw_clusters(img: &mut Mat, src: &mut Mat) {
-    for row_num in (0..src.rows()).step_by(4) {
-        let row = src
-            .row(row_num)
-            .expect(&format!("Mask does not have a row {}", row_num));
+// pub fn read(cap: &mut VideoCapture, out: &mut VideoWriter, roi: Rect) {
+//     let left_lower_hsv: Vector<u8> = Vector::from(vec![23, 40, 40]);
+//     let left_upper_hsv: Vector<u8> = Vector::from(vec![37, 255, 255]);
+//     let right_lower_hsv: Vector<u8> = Vector::from(vec![105, 60, 60]);
+//     let right_upper_hsv: Vector<u8> = Vector::from(vec![135, 255, 255]);
 
-        for x_val in path::row_line_cols(row) {
-            circle(
-                img,
-                Point {
-                    x: x_val.into(),
-                    y: row_num,
-                },
-                5,
-                Scalar::new(240 as f64, 100 as f64, 100 as f64, 255 as f64),
-                -1,
-                LINE_8,
-                0,
-            )
-            .expect("Failed to draw circle on image.");
-        }
+//     let mut bgr_img = Mat::default();
+//     let mut hsv_img = Mat::default();
+//     let mut bgr_img_final = Mat::default();
+//     let mut left_mask = Mat::default();
+//     let mut right_mask = Mat::default();
+//     let mut combined_mask = Mat::default();
+
+//     let mut angle: path::Angle = 0.0;
+//     let mut frame = 0;
+//     loop {
+//         frame += 1;
+//         match cap.read(&mut bgr_img) {
+//             Ok(true) => {}
+//             _ => break,
+//         }
+
+//         cvt_color(&mut bgr_img, &mut hsv_img, COLOR_BGR2HSV, 0)
+//             .expect("Failed to convert img to HSV");
+//         let mut hsv_roi =
+//             Mat::roi(&hsv_img, roi.clone()).expect("Failed to slice region of HSV img.");
+
+//         // Apply yellow/blue color threshold
+//         in_range(
+//             &mut hsv_roi,
+//             &left_lower_hsv,
+//             &left_upper_hsv,
+//             &mut left_mask,
+//         )
+//         .expect("Failed to apply left line colour threshold");
+//         in_range(
+//             &mut hsv_roi,
+//             &right_lower_hsv,
+//             &right_upper_hsv,
+//             &mut right_mask,
+//         )
+//         .expect("Failed to apply right line colour threshold");
+
+//         // cvt_color(&hsv_img, &mut bgr_img_final, COLOR_HSV2BGR, 0).unwrap();
+//         bitwise_or(&left_mask, &right_mask, &mut combined_mask, &Mat::default()).unwrap();
+//         cvt_color(&combined_mask, &mut bgr_img_final, COLOR_GRAY2RGB, 0).unwrap();
+
+//         if (frame % 10) != 0 {
+//             angle = path::choose_angle(&left_mask, &right_mask);
+//         }
+//         draw_ray(
+//             &mut bgr_img_final,
+//             &(-angle),
+//             VecN::new(255.0, 0.0, 0.0, 255.0),
+//         );
+
+//         out.write(&bgr_img_final)
+//             .expect("Failed to write video frame.");
+//         println!("Wrote frame number {}", frame);
+//     }
+//     out.release().unwrap();
+// }
+
+fn draw_ray(img: &mut Mat, angle: &path::Angle, color: VecN<f64, 4>) {
+    for point in path::cast_ray(&img.cols(), &img.rows(), &(angle)) {
+        circle(
+            img,
+            Point::from((point % img.cols(), point / img.cols())),
+            5,
+            color,
+            -1,
+            LINE_8,
+            0,
+        )
+        .unwrap();
     }
 }
