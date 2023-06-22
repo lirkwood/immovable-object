@@ -1,6 +1,4 @@
-# import RPi.GPIO as gpio
 from RPi import GPIO as gpio
-from time import sleep
 
 PIN = 32
 
@@ -10,20 +8,25 @@ pin = gpio.PWM(PIN, 50000)
 
 # Motor init
 pin.start(100)
-input("Press enter to confirm high pulse")
-pin.ChangeDutyCycle(50)
-input("Press enter to confirm low pulse")
+input("Confirm high")
 pin.stop()
-input("Press enter to confirm stopped")
+input("Confirm low")
+pin.start(100)
+input("Confirm high")
+pin.stop()
+input("Confirm low")
+
 
 try:
-    pin.start(50)
+    pin.start(10)
     while True:
-        dc = input("Input duty cycle or stop")
-        if dc == 'stop':
-            break
+        dc = input('Input duty cycle (1-100) or "stop": ')
         pin.ChangeDutyCycle(int(dc))
+except ValueError:
+    pass
 except KeyboardInterrupt:
     pass
+
+print("Stopping...")
 pin.stop()
 gpio.cleanup()
