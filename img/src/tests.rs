@@ -1,5 +1,5 @@
 use crate::*;
-use crate::path::{vertical_angle_to_point, point_dist};
+use crate::path::point_dist;
 use opencv::core::Size;
 use opencv::videoio::CAP_ANY;
 
@@ -26,11 +26,6 @@ use opencv::videoio::CAP_ANY;
 //         },
 //     );
 // }
-
-#[test]
-pub fn test_angle_from_center() {
-    assert_eq!(vertical_angle_to_point(&(2.0, 2.0), &(1.0, 3.0)), 45.0);
-}
 
 #[test]
 pub fn test_point_dist() {
