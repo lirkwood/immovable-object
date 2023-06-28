@@ -4,7 +4,7 @@ mod tests;
 
 use opencv::{
     core::{bitwise_or, in_range, Point, Rect, Size, VecN, Vector},
-    imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_GRAY2RGB, LINE_8},
+    imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_GRAY2RGB, LINE_8, COLOR_GRAY2BGR},
     prelude::*,
     videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
@@ -35,13 +35,21 @@ fn main() {
             break;
         }
 
+
+        // let mut hsv = Mat::default();
+        // cvt_color(&bgr_img, &mut hsv, COLOR_BGR2HSV, 0).unwrap();
+        // let mut left_mask = Mat::default();
+        // let mut right_mask = Mat::default();
+        // pf.left_mask(&hsv, &mut left_mask);
+        // pf.right_mask(&hsv, &mut right_mask);
+
+        // let mut combined_mask = Mat::default();
+        // bitwise_or(&left_mask, &right_mask, &mut combined_mask, &Mat::default()).unwrap();
+        // let mut bgr_final = Mat::default();
+        // cvt_color(&combined_mask, &mut bgr_final, COLOR_GRAY2BGR, 0).unwrap();
         let angle = pf.consider_frame(&bgr_img);
+        // draw_ray(&mut bgr_final, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
         draw_ray(&mut bgr_img, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
-        // draw_ray(&mut bgr_img, &-70.0, VecN([255.0, 0.0, 0.0, 255.0]));
-        // draw_ray(&mut bgr_img, &70.0, VecN([0.0, 255.0, 0.0, 255.0]));
-        // draw_ray(&mut bgr_img, &-45.0, VecN([255.0, 0.0, 0.0, 255.0]));
-        // draw_ray(&mut bgr_img, &45.0, VecN([0.0, 255.0, 0.0, 255.0]));
-        // draw_ray(&mut bgr_img, &0.0, VecN([0.0, 255.0, 0.0, 255.0]));
         out.write(&bgr_img).unwrap();
         println!("Frame {frame}");
     }
