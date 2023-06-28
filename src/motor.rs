@@ -19,7 +19,7 @@ impl Car {
         self.right.enable().unwrap();
     }
 
-    pub fn angle(&self, angle: Angle) {
+    pub fn angle(&self, _angle: Angle) {
         todo!("Implement driving at an angle.")
     }
 }

@@ -122,7 +122,7 @@ fn main() {
 // }
 
 fn draw_ray(img: &mut Mat, angle: &path::Angle, color: VecN<f64, 4>) {
-    for point in path::cast_ray(&img.cols(), &img.rows(), &(angle)) {
+    for point in path::cast_ray(&img.cols(), &img.rows(), angle) {
         circle(
             img,
             Point::from(path::img_index_to_coord(&img.cols(), &point)),

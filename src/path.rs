@@ -8,11 +8,11 @@ pub type Angle = f32;
 
 /// Returns absolute distance between two points.
 pub fn point_dist(first: &(f32, f32), second: &(f32, f32)) -> f32 {
-    return f32::sqrt((first.0 - second.0).powf(2.0) + (first.1 - second.1).powf(2.0));
+    f32::sqrt((first.0 - second.0).powf(2.0) + (first.1 - second.1).powf(2.0))
 }
 
 pub fn img_index_to_coord(height: &i32, index: &i32) -> (i32, i32) {
-    return (index % height, index / height);
+    (index % height, index / height)
 }
 
 pub struct Frame<'a> {
@@ -26,7 +26,7 @@ pub struct Frame<'a> {
 
 impl<'a> Frame<'a> {
     pub fn reference_point(&self) -> (i32, i32) {
-        return (self.size.0 / 2, self.size.1)
+        (self.size.0 / 2, self.size.1)
     }
 }
 
@@ -49,7 +49,7 @@ pub struct Pathfinder {
 
 impl Pathfinder {
     pub fn new() -> Self {
-        return Pathfinder {
+        Pathfinder {
             angle: 0.0,
             roi: Rect {
                 x: 0,
@@ -61,7 +61,7 @@ impl Pathfinder {
             left_upper_hsv: Vector::from(vec![37, 255, 255]),
             right_lower_hsv: Vector::from(vec![105, 60, 60]),
             right_upper_hsv: Vector::from(vec![135, 255, 255]),
-        };
+        }
     }
 
     /// Chooses an angle to drive at from the lines in the frame.
@@ -70,7 +70,7 @@ impl Pathfinder {
         let mut hsv = Mat::default();
         cvt_color(&frame, &mut hsv, COLOR_BGR2HSV, 0).expect("Failed to convert img to HSV");
         let hsv_roi =
-            Mat::roi(&hsv, self.roi.clone()).expect("Failed to slice region of HSV img.");
+            Mat::roi(&hsv, self.roi).expect("Failed to slice region of HSV img.");
 
         let (mut left_mask, mut right_mask) = (Mat::default(), Mat::default());
         self.left_mask(&hsv_roi, &mut left_mask);
@@ -83,7 +83,7 @@ impl Pathfinder {
             size: (left_mask.cols(), left_mask.rows())
         };
 
-        return choose_angle(&frame);
+        choose_angle(&frame)
     }
 
     pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
@@ -144,7 +144,7 @@ pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Line {
             return Line::Left(point_dist(&origin, &coords) as u32);
         }
     }
-    return Line::Straight;
+    Line::Straight
 }
 
 /// Casts a ray through the space of a given size, at a given angle
@@ -162,5 +162,5 @@ pub fn cast_ray(width: &i32, height: &i32, angle: &Angle) -> Vec<i32> {
         let index = (row * width) - center + offset as i32;
         indices.push(index);
     }
-    return indices;
+    indices
 }
