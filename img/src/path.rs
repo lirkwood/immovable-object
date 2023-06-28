@@ -64,36 +64,43 @@ impl Pathfinder {
 
     /// Chooses an angle to drive at from the lines in the frame.
     /// Returns the angle most commonly suggested by the last 5 frames.
-    pub fn consider_frame(&mut self, frame: &Mat) -> &Angle {
+    pub fn consider_frame(&mut self, frame: &Mat) -> Angle {
         let mut hsv = Mat::default();
         cvt_color(&frame, &mut hsv, COLOR_BGR2HSV, 0).expect("Failed to convert img to HSV");
         let mut hsv_roi =
             Mat::roi(&hsv, self.roi.clone()).expect("Failed to slice region of HSV img.");
 
         let (mut left_mask, mut right_mask) = (Mat::default(), Mat::default());
+        self.left_mask(&hsv_roi, &mut left_mask);
+        self.right_mask(&hsv_roi, &mut right_mask);
+
+        return choose_angle(&left_mask, &right_mask, &200.0);
+        // self.angle_buf
+        //     .push_back(choose_angle(&left_mask, &right_mask, &200.0));
+        // if self.angle_buf.len() > 3 {
+        //     self.angle_buf.pop_front();
+        // }
+
+        // self.angle = tally_angles(&self.angle_buf);
+        // return self.angle.clone();
+    }
+
+    pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
         in_range(
-            &mut hsv_roi,
+            src,
             &self.left_lower_hsv,
             &self.left_upper_hsv,
-            &mut left_mask,
-        )
-        .expect("Failed to apply left line colour threshold");
+            dst,
+        ).unwrap();
+    }
+
+    pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
         in_range(
-            &mut hsv_roi,
+            src,
             &self.right_lower_hsv,
             &self.right_upper_hsv,
-            &mut right_mask,
-        )
-        .expect("Failed to apply right line colour threshold");
-
-        self.angle_buf
-            .push_back(choose_angle(&left_mask, &right_mask, &200.0));
-        if self.angle_buf.len() > 5 {
-            self.angle_buf.pop_front();
-        }
-
-        self.angle = tally_angles(&self.angle_buf);
-        return &self.angle;
+            dst,
+        ).unwrap();
     }
 }
 
