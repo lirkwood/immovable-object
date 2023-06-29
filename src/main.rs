@@ -1,18 +1,25 @@
-mod path;
-#[allow(clippy::all)]
 mod motor;
+mod path;
 #[cfg(test)]
 mod tests;
 
 use opencv::{
     core::{bitwise_or, Point, Size, VecN},
-    imgproc::{circle, cvt_color, COLOR_BGR2HSV, LINE_8, COLOR_GRAY2BGR},
+    imgproc::{circle, cvt_color, COLOR_BGR2HSV, COLOR_GRAY2BGR, LINE_8},
     prelude::*,
     videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
 };
 use path::Pathfinder;
 
 fn main() {
+    motor_main();
+}
+
+fn motor_main() {
+    motor::test();
+}
+
+fn img_main() {
     let mut cap = VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY)
         .expect("Failed to read track video file.");
     let mut out = VideoWriter::new(
@@ -44,13 +51,13 @@ fn main() {
         pf.left_mask(&hsv, &mut left_mask);
         pf.right_mask(&hsv, &mut right_mask);
 
-        let mut combined_mask = Mat::default();
-        bitwise_or(&left_mask, &right_mask, &mut combined_mask, &Mat::default()).unwrap();
-        let mut bgr_final = Mat::default();
-        cvt_color(&combined_mask, &mut bgr_final, COLOR_GRAY2BGR, 0).unwrap();
+        // let mut combined_mask = Mat::default();
+        // bitwise_or(&left_mask, &right_mask, &mut combined_mask, &Mat::default()).unwrap();
+        // let mut bgr_final = Mat::default();
+        // cvt_color(&combined_mask, &mut bgr_final, COLOR_GRAY2BGR, 0).unwrap();
         let angle = pf.consider_frame(&bgr_img);
-        draw_ray(&mut bgr_final, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
-        out.write(&bgr_final).unwrap();
+        draw_ray(&mut bgr_img, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
+        out.write(&bgr_img).unwrap();
         // draw_ray(&mut bgr_img, &angle, VecN([255.0, 0.0, 0.0, 255.0]));
         // out.write(&bgr_img).unwrap();
         println!("Frame {frame}");
