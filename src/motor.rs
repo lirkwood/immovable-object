@@ -16,11 +16,11 @@ impl Car {
     }
 
     pub fn start(&self) {
-        self.left.enable().unwrap();
-        self.right.enable().unwrap();
-
         self.left.set_frequency(50.0, 0.04).unwrap();
         self.right.set_frequency(50.0, 0.04).unwrap();
+
+        self.left.enable().unwrap();
+        self.right.enable().unwrap();
     }
 
     pub fn angle(&self, _angle: Angle) {
