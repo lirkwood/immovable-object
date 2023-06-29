@@ -10,17 +10,29 @@ pub struct Car {
 }
 
 impl Car {
+    pub fn init(&self) {
+
+    }
+
     pub fn stop(&self) {
         self.left.disable().unwrap();
         self.right.disable().unwrap();
     }
 
     pub fn start(&self) {
-        self.left.set_frequency(50.0, 0.04).unwrap();
-        self.right.set_frequency(50.0, 0.04).unwrap();
+        self.left.set_frequency(50.0, 0.0).unwrap();
+        self.right.set_frequency(50.0, 0.0).unwrap();
 
         self.left.enable().unwrap();
         self.right.enable().unwrap();
+
+        sleep(Duration::from_secs(1));
+        self.left.set_frequency(50.0, 1.0).unwrap();
+        self.right.set_frequency(50.0, 1.0).unwrap();
+        sleep(Duration::from_secs(1));
+
+        self.left.set_frequency(50.0, 0.1).unwrap();
+        self.right.set_frequency(50.0, 0.1).unwrap();
     }
 
     pub fn angle(&self, _angle: Angle) {
