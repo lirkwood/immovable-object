@@ -59,8 +59,8 @@ impl Pathfinder {
             },
             left_lower_hsv: Vector::from(vec![23, 40, 40]),
             left_upper_hsv: Vector::from(vec![37, 255, 255]),
-            right_lower_hsv: Vector::from(vec![105, 60, 60]),
-            right_upper_hsv: Vector::from(vec![135, 255, 255]),
+            right_lower_hsv: Vector::from(vec![95, 50, 50]),
+            right_upper_hsv: Vector::from(vec![145, 255, 255]),
         }
     }
 
