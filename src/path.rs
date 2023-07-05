@@ -2,6 +2,10 @@ use opencv::core::{in_range, Mat, Rect, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
 use opencv::prelude::*;
 use itertools::Itertools;
+use opencv::videoio::VideoCapture;
+
+use crate::motor::{Car, Drivable};
+use crate::remote::CarControl;
 
 /// Angle between -90 (left) and 90 (right)
 pub type Angle = f32;
@@ -41,6 +45,7 @@ pub enum Line {
 pub struct Pathfinder {
     pub angle: Angle,
     pub roi: Rect,
+    pub car: CarControl,
     left_lower_hsv: Vector<u8>,
     left_upper_hsv: Vector<u8>,
     right_lower_hsv: Vector<u8>,
@@ -48,7 +53,7 @@ pub struct Pathfinder {
 }
 
 impl Pathfinder {
-    pub fn new() -> Self {
+    pub fn new(car: CarControl) -> Self {
         Pathfinder {
             angle: 0.0,
             roi: Rect {
@@ -57,10 +62,25 @@ impl Pathfinder {
                 width: 640,
                 height: 380,
             },
+            car,
             left_lower_hsv: Vector::from(vec![23, 40, 40]),
             left_upper_hsv: Vector::from(vec![37, 255, 255]),
             right_lower_hsv: Vector::from(vec![95, 50, 50]),
             right_upper_hsv: Vector::from(vec![145, 255, 255]),
+        }
+    }
+
+    /// Drives at angle determined by data read from cap.
+    pub fn drive(&mut self, mut cap: VideoCapture) {
+        let mut bgr_img = Mat::default();
+        loop {
+            match cap.read(&mut bgr_img) {
+                Ok(true) => {}
+                _ => break,
+            }
+
+            let angle = self.consider_frame(&mut bgr_img);
+            self.car.angle(angle, 75);
         }
     }
 
