@@ -17,7 +17,7 @@ use std::thread;
 
 fn main() {
     let test_cap = VideoCapture::from_file("/home/linus/media/track.mp4", 0).unwrap();
-    let car = CarControl::new(Car::new(12, 13, 3.6..10.4));
+    let car = CarControl::new(Car::default());
     let clone = car.clone();
     thread::spawn(|| remote::serve(clone));
     Pathfinder::new(car).drive(test_cap);
