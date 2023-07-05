@@ -28,9 +28,7 @@ impl Car {
             throttle_range,
         }
     }
-
 }
-
 
 pub trait Drivable {
     /// Enables the motors.

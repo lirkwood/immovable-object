@@ -24,7 +24,6 @@ impl CarControl {
 }
 
 impl Drivable for CarControl {
-
     fn enable(&mut self) {
         self.inner().enable();
     }

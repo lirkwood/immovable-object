@@ -1,10 +1,10 @@
+use itertools::Itertools;
 use opencv::core::{in_range, Mat, Rect, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
 use opencv::prelude::*;
-use itertools::Itertools;
 use opencv::videoio::VideoCapture;
 
-use crate::motor::{Car, Drivable};
+use crate::motor::Drivable;
 use crate::remote::CarControl;
 
 /// Angle between -90 (left) and 90 (right)
@@ -73,13 +73,8 @@ impl Pathfinder {
     /// Drives at angle determined by data read from cap.
     pub fn drive(&mut self, mut cap: VideoCapture) {
         let mut bgr_img = Mat::default();
-        loop {
-            match cap.read(&mut bgr_img) {
-                Ok(true) => {}
-                _ => break,
-            }
-
-            let angle = self.consider_frame(&mut bgr_img);
+        while let Ok(true) = cap.read(&mut bgr_img) {
+            let angle = self.consider_frame(&bgr_img);
             self.car.angle(angle, 75);
         }
     }
@@ -89,8 +84,7 @@ impl Pathfinder {
     pub fn consider_frame(&mut self, frame: &Mat) -> Angle {
         let mut hsv = Mat::default();
         cvt_color(&frame, &mut hsv, COLOR_BGR2HSV, 0).expect("Failed to convert img to HSV");
-        let hsv_roi =
-            Mat::roi(&hsv, self.roi).expect("Failed to slice region of HSV img.");
+        let hsv_roi = Mat::roi(&hsv, self.roi).expect("Failed to slice region of HSV img.");
 
         let (mut left_mask, mut right_mask) = (Mat::default(), Mat::default());
         self.left_mask(&hsv_roi, &mut left_mask);
@@ -100,34 +94,24 @@ impl Pathfinder {
         let frame = Frame {
             left: &left_mask,
             right: &right_mask,
-            size: (left_mask.cols(), left_mask.rows())
+            size: (left_mask.cols(), left_mask.rows()),
         };
 
         choose_angle(&frame)
     }
 
     pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(
-            src,
-            &self.left_lower_hsv,
-            &self.left_upper_hsv,
-            dst,
-        ).unwrap();
+        in_range(src, &self.left_lower_hsv, &self.left_upper_hsv, dst).unwrap();
     }
 
     pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(
-            src,
-            &self.right_lower_hsv,
-            &self.right_upper_hsv,
-            dst,
-        ).unwrap();
+        in_range(src, &self.right_lower_hsv, &self.right_upper_hsv, dst).unwrap();
     }
 }
 
 pub fn choose_angle(frame: &Frame) -> Angle {
     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
-    for angle in (0..900).step_by(5).interleave(( -900..0 ).step_by(5).rev()) {
+    for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
         let angle = angle as f32 / 10.0;
         match direction_from_ray(frame, &angle) {
             Line::Straight => return angle,
@@ -153,7 +137,10 @@ pub fn choose_angle(frame: &Frame) -> Angle {
 pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Line {
     let ray = cast_ray(&frame.size.0, &frame.size.1, angle);
     for point in ray {
-        let origin = (frame.reference_point().0 as f32, frame.reference_point().1 as f32);
+        let origin = (
+            frame.reference_point().0 as f32,
+            frame.reference_point().1 as f32,
+        );
         if let Ok(255) = frame.left.at::<u8>(point) {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);

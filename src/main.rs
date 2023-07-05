@@ -5,12 +5,7 @@ mod remote;
 mod tests;
 
 use motor::Car;
-use opencv::{
-    core::{Point, Size, VecN},
-    imgproc::{circle, cvt_color, COLOR_BGR2HSV, LINE_8},
-    prelude::*,
-    videoio::{VideoCapture, VideoCaptureTrait, VideoWriter, VideoWriterTrait, CAP_ANY},
-};
+use opencv::videoio::VideoCapture;
 use path::Pathfinder;
 use remote::CarControl;
 use std::thread;
