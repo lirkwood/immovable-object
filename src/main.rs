@@ -1,17 +1,17 @@
 mod motor;
 mod path;
 mod remote;
-#[cfg(test)]
 mod tests;
 
-use motor::Car;
+use motor::{Car, Drivable};
 use opencv::{
     core::{Size, Vector},
-    videoio::{VideoCapture, VideoWriter, CAP_ANY},
+    videoio::VideoWriter,
 };
 use path::{ColorThresholds, Pathfinder};
 use remote::CarControl;
 use std::thread;
+use tests::DummyCar;
 
 /// Prod main fn
 // fn main() {
@@ -23,23 +23,23 @@ use std::thread;
 
 /// Test main fn
 fn main() {
-    let car = CarControl::new(Car::default());
-    let clone = car.clone();
-    thread::spawn(|| remote::serve(clone));
+    let mut car = CarControl::new(DummyCar::new());
+    car.enable();
     let debug_out = VideoWriter::new(
         "vision.mp4",
         VideoWriter::fourcc('m', 'p', '4', 'v').unwrap(),
         30.0,
         Size::new(640, 380),
-        false,
+        true,
     )
     .unwrap();
+
     Pathfinder::new(
         car,
         ColorThresholds::from_toml("thresholds.toml"),
         Some(debug_out),
     )
-    .drive(VideoCapture::new(0, CAP_ANY).unwrap());
+    .drive(tests::debug_in());
 }
 
 fn default_thresholds() -> ColorThresholds {
