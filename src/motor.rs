@@ -113,12 +113,12 @@ impl Drivable for Car {
         let half = (self.throttle_range.end - self.throttle_range.start) / 2.0;
         let midpoint = self.throttle_range.start + half;
         let duty_cycle = midpoint + ((half / 100.0) * speed as f64);
-        println!("Duty cycle: {duty_cycle}");
         self.drive_left(duty_cycle);
         self.drive_right(duty_cycle);
     }
 
     fn angle(&mut self, angle: Angle, speed: Percent) {
+        // TODO add negative bias to minor_speed negatively proportional
         let minor_speed = ((90.0 - angle.abs()) / 90.0) * speed as f64;
         let minor_dc = self.duty_cycle_for_speed(&(minor_speed as isize));
         let major_dc = self.duty_cycle_for_speed(&speed);
