@@ -1,2 +1,3 @@
-# uts-drc-2023
-UTS team codebase for QUT Droid Racing Competition 2023
+# Immovable Object
+
+UTS Team 2 entry for QUT DRC 2023.
