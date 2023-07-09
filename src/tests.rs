@@ -2,7 +2,7 @@ use crate::{motor::Drivable, path};
 use opencv::core::{Mat, Point, VecN};
 use opencv::imgproc::{circle, LINE_8};
 use opencv::prelude::*;
-use opencv::videoio::{ CAP_ANY, VideoCapture };
+use opencv::videoio::{VideoCapture, CAP_ANY};
 
 #[derive(Clone)]
 /// Dummy car that does nothing.

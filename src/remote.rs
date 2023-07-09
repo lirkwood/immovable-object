@@ -4,8 +4,8 @@ use gotham::pipeline::{single_middleware, single_pipeline};
 use gotham::prelude::*;
 use gotham::router::build_router;
 use gotham::state::State;
-use tempfile::NamedTempFile;
 use std::sync::{Arc, Mutex, MutexGuard};
+use tempfile::NamedTempFile;
 
 #[derive(StateData)]
 pub struct CarControl<T: Drivable> {
@@ -15,7 +15,7 @@ pub struct CarControl<T: Drivable> {
 impl<T: Drivable> Clone for CarControl<T> {
     fn clone(&self) -> Self {
         Self {
-            inner: self.inner.clone()
+            inner: self.inner.clone(),
         }
     }
 }

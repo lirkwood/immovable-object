@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use itertools::Itertools;
 use opencv::core::{bitwise_or, in_range, Mat, Rect, VecN, Vector};
@@ -67,7 +67,7 @@ impl ColorThresholds {
         let right = vals.get("right").unwrap();
         let boxes = vals.get("box").unwrap();
         let car = vals.get("car").unwrap();
-        return Self {
+        Self {
             left_lower: Vector::from(left.0.clone()),
             left_upper: Vector::from(left.1.clone()),
             right_lower: Vector::from(right.0.clone()),
@@ -76,7 +76,7 @@ impl ColorThresholds {
             box_upper: Vector::from(boxes.1.clone()),
             car_lower: Vector::from(car.0.clone()),
             car_upper: Vector::from(car.1.clone()),
-        };
+        }
     }
 
     fn parse_threshold(table: &Table, key: &str) -> (Vec<u8>, Vec<u8>) {
@@ -218,7 +218,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
     /// Considers an angle as an input to the PID controller.
     /// Returns controlled value.
     fn pid_consider_angle(&mut self, mut angle: Angle) -> Angle {
-        self.angle_integral = self.angle_integral + angle;
+        self.angle_integral += angle;
         if self.angle_integral > 360.0 {
             self.angle_integral = 360.0;
         } else if self.angle_integral < -360.0 {
@@ -313,7 +313,7 @@ fn surrounding_points(frame: &Mat, center: &i32, dist: i32) -> Vec<i32> {
 fn inspect_point(mask: &Mat, center: &i32, dist: i32, target: u8) -> bool {
     for point in surrounding_points(mask, center, dist) {
         if mask.at::<u8>(point).is_ok_and(|val| *val != target) {
-            return false
+            return false;
         }
     }
     true
@@ -337,7 +337,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<u32> {
         for mask in [frame.left, frame.right, frame.obstacles] {
             if !inspect_point(mask, &point, 1, 0) {
                 blocked = true;
-                break
+                break;
             }
         }
 

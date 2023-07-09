@@ -3,14 +3,14 @@ mod path;
 mod remote;
 mod tests;
 
-use motor::{Car, Drivable};
+use motor::Drivable;
 use opencv::{
     core::{Size, Vector},
     videoio::VideoWriter,
 };
 use path::{ColorThresholds, Pathfinder};
 use remote::CarControl;
-use std::thread;
+
 use tests::DummyCar;
 
 /// Prod main fn
@@ -43,7 +43,7 @@ fn main() {
 }
 
 fn default_thresholds() -> ColorThresholds {
-    return ColorThresholds {
+    ColorThresholds {
         left_lower: Vector::from(vec![23, 40, 40]),
         left_upper: Vector::from(vec![37, 255, 255]),
         right_lower: Vector::from(vec![95, 40, 40]),
@@ -53,5 +53,5 @@ fn default_thresholds() -> ColorThresholds {
         car_lower: Vector::from(vec![0, 0, 0]),
         car_upper: Vector::from(vec![0, 0, 0]),
         // TODO add obstacle thresholds
-    };
+    }
 }
