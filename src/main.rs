@@ -6,21 +6,23 @@ mod tests;
 
 use motor::Car;
 use opencv::{
-    core::Size,
+    core::{Size, Vector},
     videoio::{VideoCapture, VideoWriter, CAP_ANY},
 };
-use path::Pathfinder;
+use path::{ColorThresholds, Pathfinder};
 use remote::CarControl;
 use std::thread;
 
-fn main() {
-    let car = CarControl::new(Car::default());
-    let clone = car.clone();
-    thread::spawn(|| remote::serve(clone));
-    Pathfinder::new(car, None).drive(VideoCapture::new(0, CAP_ANY).unwrap());
-}
+/// Prod main fn
+// fn main() {
+//     let car = CarControl::new(Car::default());
+//     let clone = car.clone();
+//     thread::spawn(|| remote::serve(clone));
+//     Pathfinder::new(car, default_thresholds(), None).drive(VideoCapture::new(0, CAP_ANY).unwrap());
+// }
 
-fn test() {
+/// Test main fn
+fn main() {
     let car = CarControl::new(Car::default());
     let clone = car.clone();
     thread::spawn(|| remote::serve(clone));
@@ -30,6 +32,26 @@ fn test() {
         30.0,
         Size::new(640, 380),
         false,
-    ).unwrap();
-    Pathfinder::new(car, Some(debug_out)).drive(VideoCapture::new(0, CAP_ANY).unwrap());
+    )
+    .unwrap();
+    Pathfinder::new(
+        car,
+        ColorThresholds::from_toml("thresholds.toml"),
+        Some(debug_out),
+    )
+    .drive(VideoCapture::new(0, CAP_ANY).unwrap());
+}
+
+fn default_thresholds() -> ColorThresholds {
+    return ColorThresholds {
+        left_lower: Vector::from(vec![23, 40, 40]),
+        left_upper: Vector::from(vec![37, 255, 255]),
+        right_lower: Vector::from(vec![95, 40, 40]),
+        right_upper: Vector::from(vec![145, 255, 255]),
+        box_lower: Vector::from(vec![0, 0, 0]),
+        box_upper: Vector::from(vec![0, 0, 0]),
+        car_lower: Vector::from(vec![0, 0, 0]),
+        car_upper: Vector::from(vec![0, 0, 0]),
+        // TODO add obstacle thresholds
+    };
 }

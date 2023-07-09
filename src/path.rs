@@ -1,8 +1,11 @@
+use std::collections::HashMap;
+
 use itertools::Itertools;
 use opencv::core::{bitwise_or, in_range, Mat, Rect, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
 use opencv::prelude::*;
 use opencv::videoio::{VideoCapture, VideoWriter};
+use toml::{Table, Value};
 
 use crate::motor::Drivable;
 use crate::remote::CarControl;
@@ -36,23 +39,94 @@ impl<'a> Frame<'a> {
     }
 }
 
+/// Models the HSV thresholds for object detection.
+pub struct ColorThresholds {
+    pub left_lower: Vector<u8>,
+    pub left_upper: Vector<u8>,
+    pub right_lower: Vector<u8>,
+    pub right_upper: Vector<u8>,
+    pub box_lower: Vector<u8>,
+    pub box_upper: Vector<u8>,
+    pub car_lower: Vector<u8>,
+    pub car_upper: Vector<u8>,
+}
+
+impl ColorThresholds {
+    pub fn from_toml(path: &str) -> Self {
+        let content = std::fs::read_to_string(path).unwrap();
+        let table = content.parse::<Table>().unwrap();
+        let mut vals = HashMap::new();
+        for key in ["left", "right", "box", "car"] {
+            vals.insert(key.to_owned(), Self::parse_threshold(&table, key));
+        }
+
+        let left = vals.get("left").unwrap();
+        let right = vals.get("right").unwrap();
+        let boxes = vals.get("box").unwrap();
+        let car = vals.get("car").unwrap();
+        return Self {
+            left_lower: Vector::from(left.0.clone()),
+            left_upper: Vector::from(left.1.clone()),
+            right_lower: Vector::from(right.0.clone()),
+            right_upper: Vector::from(right.1.clone()),
+            box_lower: Vector::from(boxes.0.clone()),
+            box_upper: Vector::from(boxes.1.clone()),
+            car_lower: Vector::from(car.0.clone()),
+            car_upper: Vector::from(car.1.clone()),
+        };
+    }
+
+    fn parse_threshold(table: &Table, key: &str) -> (Vec<u8>, Vec<u8>) {
+        let lower: Vec<u8> = match &table[&format!("{key}_lower")] {
+            Value::Array(vals) => {
+                let mut _lower = vec![];
+                for val in vals {
+                    match val {
+                        Value::Integer(int) => {
+                            _lower.push(*int as u8);
+                        }
+                        _ => panic!("Members of {key}_lower must be ints."),
+                    }
+                }
+                _lower
+            }
+            _ => panic!("{key}_lower must be array."),
+        };
+
+        let upper: Vec<u8> = match &table[&format!("{key}_upper")] {
+            Value::Array(vals) => {
+                let mut _upper = vec![];
+                for val in vals {
+                    match val {
+                        Value::Integer(int) => {
+                            _upper.push(*int as u8);
+                        }
+                        _ => panic!("Members of {key}_upper must be ints."),
+                    }
+                }
+                _upper
+            }
+            _ => panic!("{key}_upper must be array."),
+        };
+
+        (lower, upper)
+    }
+}
+
 pub struct Pathfinder {
     pub angle: Angle,
     pub roi: Rect,
     pub car: CarControl,
-    left_lower_hsv: Vector<u8>,
-    left_upper_hsv: Vector<u8>,
-    right_lower_hsv: Vector<u8>,
-    right_upper_hsv: Vector<u8>,
-    box_lower_hsv: Vector<u8>,
-    box_upper_hsv: Vector<u8>,
-    car_lower_hsv: Vector<u8>,
-    car_upper_hsv: Vector<u8>,
-    debug_out: Option<VideoWriter>
+    pub thresholds: ColorThresholds,
+    debug_out: Option<VideoWriter>,
 }
 
 impl Pathfinder {
-    pub fn new(car: CarControl, debug_out: Option<VideoWriter>) -> Self {
+    pub fn new(
+        car: CarControl,
+        thresholds: ColorThresholds,
+        debug_out: Option<VideoWriter>,
+    ) -> Self {
         Pathfinder {
             angle: 0.0,
             roi: Rect {
@@ -62,25 +136,26 @@ impl Pathfinder {
                 height: 380,
             },
             car,
-            left_lower_hsv: Vector::from(vec![23, 40, 40]),
-            left_upper_hsv: Vector::from(vec![37, 255, 255]),
-            right_lower_hsv: Vector::from(vec![95, 50, 50]),
-            right_upper_hsv: Vector::from(vec![145, 255, 255]),
-            box_lower_hsv: Vector::from(vec![]),
-            box_upper_hsv: Vector::from(vec![]),
-            car_lower_hsv: Vector::from(vec![]),
-            car_upper_hsv: Vector::from(vec![]),
-            debug_out
+            thresholds,
+            debug_out,
         }
     }
 
     /// Drives at angle determined by data read from cap.
     pub fn drive(&mut self, mut cap: VideoCapture) {
+        while !self.car.is_enabled() {}
         let mut bgr_img = Mat::default();
         while let Ok(true) = cap.read(&mut bgr_img) {
             let angle = self.consider_frame(&bgr_img);
             println!("Angle: {angle}");
             self.car.angle(angle, 75);
+
+            if !self.car.is_enabled() {
+                if self.debug_out.is_some() {
+                    self.debug_out.as_mut().unwrap().release().unwrap();
+                }
+                break;
+            }
         }
     }
 
@@ -108,27 +183,61 @@ impl Pathfinder {
         if self.debug_out.is_some() {
             let mut line_mask = Mat::default();
             bitwise_or(&left_mask, &right_mask, &mut line_mask, &Mat::default()).unwrap();
-            let mut debug_frame = Mat::default();
-            bitwise_or(&line_mask, &obstacle_mask, &mut debug_frame, &Mat::default()).unwrap();
-            self.debug_out.as_mut().unwrap().write(&debug_frame).unwrap();
+            // let mut debug_frame = Mat::default();
+            // bitwise_or(
+            //     &line_mask,
+            //     &obstacle_mask,
+            //     &mut debug_frame,
+            //     &Mat::default(),
+            // )
+            // .unwrap();
+            self.debug_out
+                .as_mut()
+                .unwrap()
+                .write(&line_mask)
+                .unwrap();
         }
 
         choose_angle(&frame)
     }
 
     pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(src, &self.left_lower_hsv, &self.left_upper_hsv, dst).unwrap();
+        in_range(
+            src,
+            &self.thresholds.left_lower,
+            &self.thresholds.left_upper,
+            dst,
+        )
+        .unwrap();
     }
 
     pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(src, &self.right_lower_hsv, &self.right_upper_hsv, dst).unwrap();
+        in_range(
+            src,
+            &self.thresholds.right_lower,
+            &self.thresholds.right_upper,
+            dst,
+        )
+        .unwrap();
     }
 
     pub fn obstacle_mask(&self, src: &Mat, dst: &mut Mat) {
         let mut box_mask = Mat::default();
-        in_range(src, &self.box_lower_hsv, &self.box_upper_hsv, &mut box_mask).unwrap();
+        in_range(
+            src,
+            &self.thresholds.box_lower,
+            &self.thresholds.box_upper,
+            &mut box_mask,
+        )
+        .unwrap();
         let mut car_mask = Mat::default();
-        in_range(src, &self.car_lower_hsv, &self.car_upper_hsv, &mut car_mask).unwrap();
+        in_range(
+            src,
+            &self.thresholds.car_lower,
+            &self.thresholds.car_upper,
+            &mut car_mask,
+        )
+        .unwrap();
 
         bitwise_or(&car_mask, &box_mask, dst, &Mat::default()).unwrap()
     }
@@ -160,10 +269,15 @@ pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Option<u32> {
             frame.reference_point().1 as f32,
         );
         let blocked = {
-            if let Ok(255) = frame.left.at::<u8>(point) {true}
-            else if let Ok(255) = frame.right.at::<u8>(point)  {true}
-            else if let Ok(255) = frame.obstacles.at::<u8>(point) {true}
-            else {false}
+            if let Ok(255) = frame.left.at::<u8>(point) {
+                true
+            } else if let Ok(255) = frame.right.at::<u8>(point) {
+                true
+            } else if let Ok(255) = frame.obstacles.at::<u8>(point) {
+                true
+            } else {
+                false
+            }
         };
         if blocked {
             let _coords = img_index_to_coord(&frame.size.0, &point);
