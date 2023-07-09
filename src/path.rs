@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use opencv::core::{in_range, Mat, Rect, Vector};
+use opencv::core::{bitwise_or, in_range, Mat, Rect, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
 use opencv::prelude::*;
 use opencv::videoio::VideoCapture;
@@ -24,6 +24,8 @@ pub struct Frame<'a> {
     left: &'a Mat,
     /// Mat of the right lines.
     right: &'a Mat,
+    /// Mat of the obstacles (boxes/cars).
+    obstacles: &'a Mat,
     /// Size of the frame.
     size: (i32, i32),
 }
@@ -34,14 +36,6 @@ impl<'a> Frame<'a> {
     }
 }
 
-/// Models a left or right boundary line.
-/// Content is distance from bottom centre.
-pub enum Line {
-    Left(u32),
-    Right(u32),
-    Straight,
-}
-
 pub struct Pathfinder {
     pub angle: Angle,
     pub roi: Rect,
@@ -50,6 +44,10 @@ pub struct Pathfinder {
     left_upper_hsv: Vector<u8>,
     right_lower_hsv: Vector<u8>,
     right_upper_hsv: Vector<u8>,
+    box_lower_hsv: Vector<u8>,
+    box_upper_hsv: Vector<u8>,
+    car_lower_hsv: Vector<u8>,
+    car_upper_hsv: Vector<u8>,
 }
 
 impl Pathfinder {
@@ -67,6 +65,10 @@ impl Pathfinder {
             left_upper_hsv: Vector::from(vec![37, 255, 255]),
             right_lower_hsv: Vector::from(vec![95, 50, 50]),
             right_upper_hsv: Vector::from(vec![145, 255, 255]),
+            box_lower_hsv: Vector::from(vec![]),
+            box_upper_hsv: Vector::from(vec![]),
+            car_lower_hsv: Vector::from(vec![]),
+            car_upper_hsv: Vector::from(vec![]),
         }
     }
 
@@ -92,9 +94,12 @@ impl Pathfinder {
         self.right_mask(&hsv_roi, &mut right_mask);
         assert_eq!(left_mask.cols(), right_mask.cols());
         assert_eq!(left_mask.rows(), right_mask.rows());
+        let mut obstacle_mask = Mat::default();
+        self.obstacle_mask(&hsv_roi, &mut obstacle_mask);
         let frame = Frame {
             left: &left_mask,
             right: &right_mask,
+            obstacles: &obstacle_mask,
             size: (left_mask.cols(), left_mask.rows()),
         };
 
@@ -108,6 +113,15 @@ impl Pathfinder {
     pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
         in_range(src, &self.right_lower_hsv, &self.right_upper_hsv, dst).unwrap();
     }
+
+    pub fn obstacle_mask(&self, src: &Mat, dst: &mut Mat) {
+        let mut box_mask = Mat::default();
+        in_range(src, &self.box_lower_hsv, &self.box_upper_hsv, &mut box_mask).unwrap();
+        let mut car_mask = Mat::default();
+        in_range(src, &self.car_lower_hsv, &self.car_upper_hsv, &mut car_mask).unwrap();
+
+        bitwise_or(&car_mask, &box_mask, dst, &Mat::default()).unwrap()
+    }
 }
 
 pub fn choose_angle(frame: &Frame) -> Angle {
@@ -115,14 +129,8 @@ pub fn choose_angle(frame: &Frame) -> Angle {
     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
         let angle = angle as f64 / 10.0;
         match direction_from_ray(frame, &angle) {
-            Line::Straight => return angle,
-            Line::Left(dist) => {
-                if dist > max_dist {
-                    max_dist = dist;
-                    best_angle = angle;
-                }
-            }
-            Line::Right(dist) => {
+            None => return angle,
+            Some(dist) => {
                 if dist > max_dist {
                     max_dist = dist;
                     best_angle = angle;
@@ -135,24 +143,25 @@ pub fn choose_angle(frame: &Frame) -> Angle {
 
 /// Casts a ray from the bottom centre at the given angle.
 /// Returns a direction to turn based on what the ray hits.
-pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Line {
-    let ray = cast_ray(&frame.size.0, &frame.size.1, angle);
-    for point in ray {
+pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Option<u32> {
+    for point in cast_ray(&frame.size.0, &frame.size.1, angle) {
         let origin = (
             frame.reference_point().0 as f32,
             frame.reference_point().1 as f32,
         );
-        if let Ok(255) = frame.left.at::<u8>(point) {
+        let blocked = {
+            if let Ok(255) = frame.left.at::<u8>(point) {true}
+            else if let Ok(255) = frame.right.at::<u8>(point)  {true}
+            else if let Ok(255) = frame.obstacles.at::<u8>(point) {true}
+            else {false}
+        };
+        if blocked {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
-            return Line::Right(point_dist(&origin, &coords) as u32);
-        } else if let Ok(255) = frame.right.at::<u8>(point) {
-            let _coords = img_index_to_coord(&frame.size.0, &point);
-            let coords = (_coords.0 as f32, _coords.1 as f32);
-            return Line::Left(point_dist(&origin, &coords) as u32);
+            return Some(point_dist(&origin, &coords) as u32);
         }
     }
-    Line::Straight
+    None
 }
 
 /// Casts a ray through the space of a given size, at a given angle
