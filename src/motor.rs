@@ -39,7 +39,7 @@ impl Car {
     }
 }
 
-pub trait Drivable {
+pub trait Drivable: Send + 'static {
     /// Enables the motors.
     fn enable(&mut self);
 
@@ -66,7 +66,7 @@ pub trait Drivable {
     fn forward(&mut self, speed: Percent);
 
     /// Drive at given angle and give % speed.
-    fn angle(&mut self, _angle: Angle, _speed: Percent);
+    fn angle(&mut self, angle: Angle, speed: Percent);
 }
 
 impl Drivable for Car {

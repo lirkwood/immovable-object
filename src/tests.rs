@@ -1,7 +1,65 @@
+use crate::{motor::Drivable, path};
+use opencv::core::{Mat, Point, VecN};
+use opencv::imgproc::{circle, LINE_8};
+use opencv::prelude::*;
+use opencv::videoio::{ CAP_ANY, VideoCapture };
 
-use crate::path::point_dist;
+#[derive(Clone)]
+/// Dummy car that does nothing.
+pub struct DummyCar {
+    enabled: bool,
+}
 
+impl DummyCar {
+    pub fn new() -> Self {
+        Self { enabled: false }
+    }
+}
 
+impl Drivable for DummyCar {
+    fn angle(&mut self, _angle: crate::path::Angle, _speed: crate::motor::Percent) {}
+
+    fn disable(&mut self) {
+        self.enabled = false;
+    }
+
+    fn enable(&mut self) {
+        self.enabled = true;
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn drive_left(&mut self, _duty_cycle: f64) {}
+
+    fn drive_right(&mut self, _duty_cycle: f64) {}
+
+    fn forward(&mut self, _speed: crate::motor::Percent) {}
+
+    fn init(&mut self) {}
+
+    fn stop(&mut self) {}
+}
+
+pub fn draw_ray(img: &mut Mat, angle: &path::Angle, color: VecN<f64, 4>) {
+    for point in path::cast_ray(&img.cols(), &img.rows(), angle) {
+        circle(
+            img,
+            Point::from(path::img_index_to_coord(&img.cols(), &point)),
+            5,
+            color,
+            -1,
+            LINE_8,
+            0,
+        )
+        .unwrap();
+    }
+}
+
+pub fn debug_in() -> VideoCapture {
+    VideoCapture::from_file("/home/linus/media/track.mp4", CAP_ANY).unwrap()
+}
 
 // #[test]
 // pub fn test_row_cluster_indices() {
@@ -29,9 +87,9 @@ use crate::path::point_dist;
 
 #[test]
 pub fn test_point_dist() {
-    assert_eq!(point_dist(&(1.0, 1.0), &(2.0, 1.0)), 1.0);
-    assert_eq!(point_dist(&(1.0, 1.0), &(1.0, 2.0)), 1.0);
-    assert_eq!(point_dist(&(1.0, 1.0), &(2.0, 2.0)), f32::sqrt(2.0));
+    assert_eq!(path::point_dist(&(1.0, 1.0), &(2.0, 1.0)), 1.0);
+    assert_eq!(path::point_dist(&(1.0, 1.0), &(1.0, 2.0)), 1.0);
+    assert_eq!(path::point_dist(&(1.0, 1.0), &(2.0, 2.0)), f32::sqrt(2.0));
 }
 
 // #[test]

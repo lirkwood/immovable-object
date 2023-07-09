@@ -1,4 +1,4 @@
-use crate::motor::{Car, Drivable};
+use crate::motor::Drivable;
 use gotham::middleware::state::StateMiddleware;
 use gotham::pipeline::{single_middleware, single_pipeline};
 use gotham::prelude::*;
@@ -7,24 +7,32 @@ use gotham::state::State;
 use tempfile::NamedTempFile;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-#[derive(Clone, StateData)]
-pub struct CarControl {
-    inner: Arc<Mutex<Car>>,
+#[derive(StateData)]
+pub struct CarControl<T: Drivable> {
+    inner: Arc<Mutex<T>>,
 }
 
-impl CarControl {
-    pub fn new(car: Car) -> Self {
+impl<T: Drivable> Clone for CarControl<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone()
+        }
+    }
+}
+
+impl<T: Drivable> CarControl<T> {
+    pub fn new(car: T) -> Self {
         CarControl {
             inner: Arc::new(Mutex::new(car)),
         }
     }
 
-    fn inner(&self) -> MutexGuard<Car> {
+    fn inner(&self) -> MutexGuard<T> {
         self.inner.lock().unwrap()
     }
 }
 
-impl Drivable for CarControl {
+impl<T: Drivable> Drivable for CarControl<T> {
     fn enable(&mut self) {
         self.inner().enable();
     }
@@ -62,31 +70,29 @@ impl Drivable for CarControl {
     }
 }
 
-pub fn enable(mut state: State) -> (State, String) {
+pub fn enable<T: Drivable>(mut state: State) -> (State, String) {
     println!("Enabling...");
-    let car = CarControl::borrow_mut_from(&mut state);
-    car.enable();
-
+    CarControl::<T>::borrow_mut_from(&mut state).enable();
     (state, "Started".to_string())
 }
 
-pub fn disable(mut state: State) -> (State, String) {
+pub fn disable<T: Drivable>(mut state: State) -> (State, String) {
     println!("Disabling...");
-    let car = CarControl::borrow_mut_from(&mut state);
+    let car = CarControl::<T>::borrow_mut_from(&mut state);
     car.disable();
 
     (state, "Stopped".to_string())
 }
 
-pub fn serve(car: CarControl) {
+pub fn serve<T: Drivable>(car: CarControl<T>) {
     let index_file = NamedTempFile::new().unwrap();
     std::fs::write(&index_file, LANDING_PAGE).unwrap();
 
     let (chain, pipelines) = single_pipeline(single_middleware(StateMiddleware::new(car)));
     let router = build_router(chain, pipelines, |route| {
         route.get("/").to_file(index_file.path());
-        route.post("/start").to(enable);
-        route.post("/stop").to(disable);
+        route.post("/start").to(enable::<T>);
+        route.post("/stop").to(disable::<T>);
     });
 
     gotham::start("0.0.0.0:80", router).unwrap();
