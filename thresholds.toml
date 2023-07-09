@@ -1,0 +1,8 @@
+left_lower = [23, 40, 40]
+left_upper = [37, 255, 255]
+right_lower = [85, 35, 35]
+right_upper = [150, 255, 255]
+box_lower = [0, 0, 0]
+box_upper = [0, 0, 0]
+car_lower = [0, 0, 0]
+car_upper = [0, 0, 0]
