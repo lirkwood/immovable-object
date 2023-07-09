@@ -8,7 +8,7 @@ use crate::motor::Drivable;
 use crate::remote::CarControl;
 
 /// Angle between -90 (left) and 90 (right)
-pub type Angle = f32;
+pub type Angle = f64;
 
 /// Returns absolute distance between two points.
 pub fn point_dist(first: &(f32, f32), second: &(f32, f32)) -> f32 {
@@ -75,6 +75,7 @@ impl Pathfinder {
         let mut bgr_img = Mat::default();
         while let Ok(true) = cap.read(&mut bgr_img) {
             let angle = self.consider_frame(&bgr_img);
+            println!("Angle: {angle}");
             self.car.angle(angle, 75);
         }
     }
@@ -112,7 +113,7 @@ impl Pathfinder {
 pub fn choose_angle(frame: &Frame) -> Angle {
     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
-        let angle = angle as f32 / 10.0;
+        let angle = angle as f64 / 10.0;
         match direction_from_ray(frame, &angle) {
             Line::Straight => return angle,
             Line::Left(dist) => {
@@ -162,8 +163,8 @@ pub fn cast_ray(width: &i32, height: &i32, angle: &Angle) -> Vec<i32> {
     let center = width / 2;
     let mut indices = Vec::new();
     for row in (0..*height).rev() {
-        let offset = ((height - row) as f32) * tan_angle;
-        if offset.abs() > center as f32 {
+        let offset = ((height - row) as f64) * tan_angle;
+        if offset.abs() > center as f64 {
             break;
         }
         let index = (row * width) - center + offset as i32;
