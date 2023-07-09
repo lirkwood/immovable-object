@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use itertools::Itertools;
-use opencv::core::{bitwise_or, in_range, Mat, Rect, Vector};
-use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
+use opencv::core::{bitwise_or, in_range, Mat, Rect, VecN, Vector};
+use opencv::imgproc::{cvt_color, COLOR_BGR2HSV, COLOR_GRAY2BGR};
 use opencv::prelude::*;
 use opencv::videoio::{VideoCapture, VideoWriter};
 use toml::{Table, Value};
 
 use crate::motor::Drivable;
 use crate::remote::CarControl;
+use crate::tests::draw_ray;
 
 /// Angle between -90 (left) and 90 (right)
 pub type Angle = f64;
@@ -18,10 +19,12 @@ pub fn point_dist(first: &(f32, f32), second: &(f32, f32)) -> f32 {
     f32::sqrt((first.0 - second.0).powf(2.0) + (first.1 - second.1).powf(2.0))
 }
 
-pub fn img_index_to_coord(height: &i32, index: &i32) -> (i32, i32) {
-    (index % height, index / height)
+/// Converts the index of a point in an image to a coordinate (x, y)
+pub fn img_index_to_coord(img_width: &i32, index: &i32) -> (i32, i32) {
+    (index % img_width, index / img_width)
 }
 
+/// Models a frame of the track by its masks.
 pub struct Frame<'a> {
     /// Mat of the left lines.
     left: &'a Mat,
@@ -113,17 +116,28 @@ impl ColorThresholds {
     }
 }
 
-pub struct Pathfinder {
+/// Reads a video stream and tells a car which way to turn.
+pub struct Pathfinder<T: Drivable> {
+    /// Current driving angle.
     pub angle: Angle,
+    /// Region of input to consider.
     pub roi: Rect,
-    pub car: CarControl,
+    /// Car to drive.
+    pub car: CarControl<T>,
+    /// Thresholds to use to choose driving angle.
     pub thresholds: ColorThresholds,
     debug_out: Option<VideoWriter>,
+    /// Integral for PID controller.
+    angle_integral: f64,
+    /// PID proportional gain.
+    p_gain: f64,
+    /// PID integral gain.
+    i_gain: f64,
 }
 
-impl Pathfinder {
+impl<T: Drivable + Send> Pathfinder<T> {
     pub fn new(
-        car: CarControl,
+        car: CarControl<T>,
         thresholds: ColorThresholds,
         debug_out: Option<VideoWriter>,
     ) -> Self {
@@ -138,6 +152,9 @@ impl Pathfinder {
             car,
             thresholds,
             debug_out,
+            angle_integral: 0.0,
+            p_gain: 0.75,
+            i_gain: 0.04,
         }
     }
 
@@ -180,25 +197,42 @@ impl Pathfinder {
             size: (left_mask.cols(), left_mask.rows()),
         };
 
+        let angle = self.pid_consider_angle(choose_angle(&frame));
+
+        // DEBUG
         if self.debug_out.is_some() {
             let mut line_mask = Mat::default();
             bitwise_or(&left_mask, &right_mask, &mut line_mask, &Mat::default()).unwrap();
-            // let mut debug_frame = Mat::default();
-            // bitwise_or(
-            //     &line_mask,
-            //     &obstacle_mask,
-            //     &mut debug_frame,
-            //     &Mat::default(),
-            // )
-            // .unwrap();
-            self.debug_out
-                .as_mut()
-                .unwrap()
-                .write(&line_mask)
-                .unwrap();
+            let mut bgr_lines = Mat::default();
+            cvt_color(&line_mask, &mut bgr_lines, COLOR_GRAY2BGR, 0).unwrap();
+
+            draw_ray(&mut bgr_lines, &angle, VecN::new(0.0, 0.0, 255.0, 255.0));
+            self.debug_out.as_mut().unwrap().write(&bgr_lines).unwrap();
+            println!("Angle: {angle}");
+        }
+        // DEBUG
+
+        angle
+    }
+
+    /// Considers an angle as an input to the PID controller.
+    /// Returns controlled value.
+    fn pid_consider_angle(&mut self, mut angle: Angle) -> Angle {
+        self.angle_integral = self.angle_integral + angle;
+        if self.angle_integral > 360.0 {
+            self.angle_integral = 360.0;
+        } else if self.angle_integral < -360.0 {
+            self.angle_integral = -360.0;
         }
 
-        choose_angle(&frame)
+        angle = (self.p_gain * angle) + (self.i_gain * self.angle_integral);
+        if angle < -90.0 {
+            angle = -90.0;
+        } else if angle > 90.0 {
+            angle = 90.0;
+        }
+
+        angle
     }
 
     pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
@@ -247,7 +281,7 @@ pub fn choose_angle(frame: &Frame) -> Angle {
     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
         let angle = angle as f64 / 10.0;
-        match direction_from_ray(frame, &angle) {
+        match ray_dist(frame, &angle) {
             None => return angle,
             Some(dist) => {
                 if dist > max_dist {
@@ -260,29 +294,62 @@ pub fn choose_angle(frame: &Frame) -> Angle {
     best_angle
 }
 
+/// Returns all points around the center that are, at most, $dist points away.
+/// Distance can be vertical horizontal or
+fn surrounding_points(frame: &Mat, center: &i32, dist: i32) -> Vec<i32> {
+    let mut points = vec![];
+    points.extend(*center - dist..=*center + dist);
+    for ring in 1..=dist {
+        let vertical_dist = frame.cols() * ring;
+        let (top_row, bot_row) = (*center - vertical_dist, *center + vertical_dist);
+        points.extend(top_row - dist..=top_row + dist);
+        points.extend(bot_row - dist..=bot_row + dist);
+    }
+    points
+}
+
+/// Checks all the points a given distance away.
+/// Returns true if all of them are the target value.
+fn inspect_point(mask: &Mat, center: &i32, dist: i32, target: u8) -> bool {
+    for point in surrounding_points(mask, center, dist) {
+        if mask.at::<u8>(point).is_ok_and(|val| *val != target) {
+            return false
+        }
+    }
+    true
+}
+
 /// Casts a ray from the bottom centre at the given angle.
-/// Returns a direction to turn based on what the ray hits.
-pub fn direction_from_ray(frame: &Frame, angle: &Angle) -> Option<u32> {
+/// Returns the distance the ray travelled before hitting an obstacle.
+pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<u32> {
     for point in cast_ray(&frame.size.0, &frame.size.1, angle) {
-        let origin = (
-            frame.reference_point().0 as f32,
-            frame.reference_point().1 as f32,
-        );
-        let blocked = {
-            if let Ok(255) = frame.left.at::<u8>(point) {
-                true
-            } else if let Ok(255) = frame.right.at::<u8>(point) {
-                true
-            } else if let Ok(255) = frame.obstacles.at::<u8>(point) {
-                true
-            } else {
-                false
+        let mut blocked = false;
+        // Testing if all surrounding px are set.
+        // for mask in [frame.left, frame.right, frame.obstacles] {
+        //     if let Ok(255) = mask.at::<u8>(point) {
+        //         if inspect_point(mask, &point, 1, 255) {
+        //             blocked = true;
+        //         }
+        //     }
+        // }
+
+        // Testing if all surrounding px are unset
+        for mask in [frame.left, frame.right, frame.obstacles] {
+            if !inspect_point(mask, &point, 1, 0) {
+                blocked = true;
+                break
             }
-        };
+        }
+
         if blocked {
+            let origin = (
+                frame.reference_point().0 as f32,
+                frame.reference_point().1 as f32,
+            );
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
             return Some(point_dist(&origin, &coords) as u32);
+        } else {
         }
     }
     None
