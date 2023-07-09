@@ -5,15 +5,18 @@ mod remote;
 mod tests;
 
 use motor::Car;
-use opencv::videoio::VideoCapture;
+use opencv::videoio::{VideoCapture, CAP_ANY};
 use path::Pathfinder;
 use remote::CarControl;
 use std::thread;
 
 fn main() {
-    let test_cap = VideoCapture::from_file("/home/linus/media/track.mp4", 0).unwrap();
     let car = CarControl::new(Car::default());
     let clone = car.clone();
     thread::spawn(|| remote::serve(clone));
-    Pathfinder::new(car).drive(test_cap);
+    Pathfinder::new(car).drive(VideoCapture::new(0, CAP_ANY).unwrap());
+}
+
+fn test() {
+    motor::test_speed()
 }
