@@ -2,7 +2,7 @@ use itertools::Itertools;
 use opencv::core::{bitwise_or, in_range, Mat, Rect, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV};
 use opencv::prelude::*;
-use opencv::videoio::VideoCapture;
+use opencv::videoio::{VideoCapture, VideoWriter};
 
 use crate::motor::Drivable;
 use crate::remote::CarControl;
@@ -48,10 +48,11 @@ pub struct Pathfinder {
     box_upper_hsv: Vector<u8>,
     car_lower_hsv: Vector<u8>,
     car_upper_hsv: Vector<u8>,
+    debug_out: Option<VideoWriter>
 }
 
 impl Pathfinder {
-    pub fn new(car: CarControl) -> Self {
+    pub fn new(car: CarControl, debug_out: Option<VideoWriter>) -> Self {
         Pathfinder {
             angle: 0.0,
             roi: Rect {
@@ -69,6 +70,7 @@ impl Pathfinder {
             box_upper_hsv: Vector::from(vec![]),
             car_lower_hsv: Vector::from(vec![]),
             car_upper_hsv: Vector::from(vec![]),
+            debug_out
         }
     }
 
@@ -102,6 +104,14 @@ impl Pathfinder {
             obstacles: &obstacle_mask,
             size: (left_mask.cols(), left_mask.rows()),
         };
+
+        if self.debug_out.is_some() {
+            let mut line_mask = Mat::default();
+            bitwise_or(&left_mask, &right_mask, &mut line_mask, &Mat::default()).unwrap();
+            let mut debug_frame = Mat::default();
+            bitwise_or(&line_mask, &obstacle_mask, &mut debug_frame, &Mat::default()).unwrap();
+            self.debug_out.as_mut().unwrap().write(&debug_frame).unwrap();
+        }
 
         choose_angle(&frame)
     }
