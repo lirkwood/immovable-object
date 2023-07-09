@@ -33,6 +33,22 @@ impl Drivable for CarControl {
         self.inner().disable();
     }
 
+    fn is_enabled(&self) -> bool {
+        self.inner().is_enabled()
+    }
+
+    fn drive_left(&mut self, duty_cycle: f64) {
+        self.inner().drive_left(duty_cycle);
+    }
+
+    fn drive_right(&mut self, duty_cycle: f64) {
+        self.inner().drive_right(duty_cycle);
+    }
+
+    fn init(&mut self) {
+        self.inner().init();
+    }
+
     fn stop(&mut self) {
         self.inner().stop();
     }
@@ -41,7 +57,7 @@ impl Drivable for CarControl {
         self.inner().forward(speed);
     }
 
-    fn angle(&self, _angle: crate::path::Angle, speed: crate::motor::Percent) {
+    fn angle(&mut self, _angle: crate::path::Angle, speed: crate::motor::Percent) {
         self.inner().angle(_angle, speed);
     }
 }
@@ -76,7 +92,7 @@ pub fn serve(car: CarControl) {
     gotham::start("0.0.0.0:80", router).unwrap();
 }
 
-const LANDING_PAGE: &'static str = "<!DOCTYPE html><html>
+const LANDING_PAGE: &str = "<!DOCTYPE html><html>
 <head>
     <h1>Immovable Object Controls</h1>
 </head>
