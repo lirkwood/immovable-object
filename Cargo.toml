@@ -10,6 +10,3 @@ opencv = "0.82.1"
 rppal = { version = "0.14.1", features = ["hal", "hal-unproven"] }
 tempfile = "3.6.0"
 toml = "0.7.6"
-
-[profile.release]
-debug = true
