@@ -285,9 +285,9 @@ pub fn choose_angle(frame: &Frame) -> Angle {
             None => return angle,
             Some(obstacle) => {
                 let dist = match obstacle {
-                    Obstacle::LeftLine(dist)
-                    | Obstacle::RightLine(dist)
-                    | Obstacle::Obstacle(dist) => dist,
+                    TrackObject::LeftLine(dist)
+                    | TrackObject::RightLine(dist)
+                    | TrackObject::Obstacle(dist) => dist,
                 };
                 if dist > max_dist {
                     max_dist = dist;
@@ -299,10 +299,61 @@ pub fn choose_angle(frame: &Frame) -> Angle {
     best_angle
 }
 
-pub enum Obstacle {
+pub enum TrackObject {
     LeftLine(u32),
     RightLine(u32),
     Obstacle(u32),
+}
+
+impl TrackObject {
+    pub fn dist(&self) -> u32 {
+        match self {
+            Self::LeftLine(dist) | Self::RightLine(dist) | Self::Obstacle(dist) => {*dist}
+        }
+    }
+}
+
+/// Returns next angles to check based on seen angles and seen track object.
+pub fn handle_track_obj(seen: &HashSet<i64>, angle: &Angle, obj: &TrackObject) -> Vec<Angle> {
+    let mut angles = vec![];
+    match obj {
+        TrackObject::LeftLine(_) => {
+            let mut new_angle = angle + 5.0;
+            while seen.contains(&(new_angle as i64)) {
+                new_angle += 5.0;
+            }
+            if new_angle <= 90.0 {
+                angles.push(new_angle);
+            }
+        }
+        TrackObject::RightLine(_) => {
+            let mut new_angle = angle - 5.0;
+            while seen.contains(&(new_angle as i64)) {
+                new_angle -= 5.0;
+            }
+            if new_angle >= -90.0 {
+                angles.push(new_angle);
+            }
+        }
+        TrackObject::Obstacle(_) => {
+            let mut right_angle = angle - 5.0;
+            while seen.contains(&(right_angle as i64)) {
+                right_angle -= 5.0;
+            }
+            if right_angle >= -90.0 {
+                angles.push(right_angle);
+            }
+
+            let mut left_angle = angle + 5.0;
+            while seen.contains(&(left_angle as i64)) {
+                left_angle += 5.0;
+            }
+            if left_angle <= 90.0 {
+                angles.push(right_angle);
+            }
+        }
+    }
+    angles
 }
 
 /// Smarter choose_angle.
@@ -314,35 +365,16 @@ pub fn smart_choose_angle(frame: &Frame) -> Angle {
         seen.insert(angle as i64);
         match ray_dist(frame, &angle) {
             None => return angle,
-            Some(obstacle) => {
-                let dist = match obstacle {
-                    Obstacle::LeftLine(dist) => {
-                        let mut new_angle = angle + 5.0;
-                        while seen.contains(&(new_angle as i64)) {
-                            new_angle += 5.0;
-                        }
-                        if new_angle > 90.0 {
-                            break;
-                        }
-                        test_angles.push_back(new_angle);
-                        dist
-                    }
-                    Obstacle::RightLine(dist) => {
-                        let mut new_angle = angle - 5.0;
-                        while seen.contains(&(new_angle as i64)) {
-                            new_angle -= 5.0;
-                        }
-                        if new_angle < -90.0 {
-                            break;
-                        }
-                        test_angles.push_back(new_angle);
-                        dist
-                    }
-                    Obstacle::Obstacle(dist) => {dist}
-                };
+            Some(obj) => {
+                if obj.dist() > max_dist {
+                    (best_angle, max_dist) = (angle, obj.dist());
+                }
 
-                if dist > max_dist {
-                    (best_angle, max_dist) = (angle, dist);
+                let new_angles = handle_track_obj(&seen, &angle, &obj);
+                if new_angles.len() == 0 {
+                    break
+                } else {
+                    test_angles.extend(new_angles);
                 }
             }
         }
@@ -377,7 +409,7 @@ fn inspect_point(mask: &Mat, center: &i32, dist: i32, target: u8) -> bool {
 
 /// Casts a ray from the bottom centre at the given angle.
 /// Returns the distance the ray travelled before hitting an obstacle.
-pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<Obstacle> {
+pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
     for point in cast_ray(&frame.size.0, &frame.size.1, angle) {
         let mut blocked = None;
 
@@ -388,7 +420,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<Obstacle> {
             );
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
-            blocked = Some(Obstacle::LeftLine(point_dist(&origin, &coords) as u32));
+            blocked = Some(TrackObject::LeftLine(point_dist(&origin, &coords) as u32));
         } else if !inspect_point(frame.right, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
@@ -396,7 +428,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<Obstacle> {
             );
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
-            blocked = Some(Obstacle::RightLine(point_dist(&origin, &coords) as u32));
+            blocked = Some(TrackObject::RightLine(point_dist(&origin, &coords) as u32));
         } else if !inspect_point(frame.obstacles, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
@@ -404,7 +436,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<Obstacle> {
             );
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
-            blocked = Some(Obstacle::Obstacle(point_dist(&origin, &coords) as u32));
+            blocked = Some(TrackObject::Obstacle(point_dist(&origin, &coords) as u32));
         }
 
         if blocked.is_some() {
