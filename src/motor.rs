@@ -119,8 +119,11 @@ impl Drivable for Car {
 
     fn angle(&mut self, angle: Angle, speed: Percent) {
         // TODO add negative bias to minor_speed negatively proportional
-        let minor_speed = ((90.0 - angle.abs()) / 90.0) * speed as f64;
+        let mut minor_speed = ((90.0 - angle.abs()) / 90.0) * speed as f64;
+        let minor_bias = (45.0 / 100.0) * (100.0 - minor_speed);
+        minor_speed -= minor_bias;
         let minor_dc = self.duty_cycle_for_speed(&(minor_speed as isize));
+
         let major_dc = self.duty_cycle_for_speed(&speed);
         if angle < 0.0 {
             self.drive_left(minor_dc);
