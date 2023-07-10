@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use itertools::Itertools;
 use opencv::core::{bitwise_or, in_range, Mat, Rect, VecN, Vector};
@@ -165,7 +165,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
         while let Ok(true) = cap.read(&mut bgr_img) {
             let angle = self.consider_frame(&bgr_img);
             println!("Angle: {angle}");
-            self.car.angle(angle, 75);
+            self.car.angle(angle, 35);
 
             if !self.car.is_enabled() {
                 if self.debug_out.is_some() {
@@ -197,7 +197,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
             size: (left_mask.cols(), left_mask.rows()),
         };
 
-        let angle = self.pid_consider_angle(choose_angle(&frame));
+        let angle = self.pid_consider_angle(smart_choose_angle(&frame));
 
         // DEBUG
         if self.debug_out.is_some() {
@@ -208,7 +208,6 @@ impl<T: Drivable + Send> Pathfinder<T> {
 
             draw_ray(&mut bgr_lines, &angle, VecN::new(0.0, 0.0, 255.0, 255.0));
             self.debug_out.as_mut().unwrap().write(&bgr_lines).unwrap();
-            println!("Angle: {angle}");
         }
         // DEBUG
 
@@ -277,16 +276,73 @@ impl<T: Drivable + Send> Pathfinder<T> {
     }
 }
 
+/// Chooses angle to drive at from a frame.
 pub fn choose_angle(frame: &Frame) -> Angle {
     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
         let angle = angle as f64 / 10.0;
         match ray_dist(frame, &angle) {
             None => return angle,
-            Some(dist) => {
+            Some(obstacle) => {
+                let dist = match obstacle {
+                    Obstacle::LeftLine(dist)
+                    | Obstacle::RightLine(dist)
+                    | Obstacle::Obstacle(dist) => dist,
+                };
                 if dist > max_dist {
                     max_dist = dist;
                     best_angle = angle;
+                }
+            }
+        }
+    }
+    best_angle
+}
+
+pub enum Obstacle {
+    LeftLine(u32),
+    RightLine(u32),
+    Obstacle(u32),
+}
+
+/// Smarter choose_angle.
+pub fn smart_choose_angle(frame: &Frame) -> Angle {
+    let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
+    let mut test_angles: VecDeque<f64> = VecDeque::from(vec![0.0]);
+    let mut seen = HashSet::new();
+    while let Some(angle) = test_angles.pop_front() {
+        seen.insert(angle as i64);
+        match ray_dist(frame, &angle) {
+            None => return angle,
+            Some(obstacle) => {
+                let dist = match obstacle {
+                    Obstacle::LeftLine(dist) => {
+                        let mut new_angle = angle + 5.0;
+                        while seen.contains(&(new_angle as i64)) {
+                            new_angle += 5.0;
+                        }
+                        if new_angle > 90.0 {
+                            break;
+                        }
+                        test_angles.push_back(new_angle);
+                        dist
+                    }
+                    Obstacle::RightLine(dist) => {
+                        let mut new_angle = angle - 5.0;
+                        while seen.contains(&(new_angle as i64)) {
+                            new_angle -= 5.0;
+                        }
+                        if new_angle < -90.0 {
+                            break;
+                        }
+                        test_angles.push_back(new_angle);
+                        dist
+                    }
+                    Obstacle::Obstacle(dist) => {dist}
+                };
+
+                if dist > max_dist {
+                    (best_angle, max_dist) = (angle, dist);
                 }
             }
         }
@@ -321,35 +377,38 @@ fn inspect_point(mask: &Mat, center: &i32, dist: i32, target: u8) -> bool {
 
 /// Casts a ray from the bottom centre at the given angle.
 /// Returns the distance the ray travelled before hitting an obstacle.
-pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<u32> {
+pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<Obstacle> {
     for point in cast_ray(&frame.size.0, &frame.size.1, angle) {
-        let mut blocked = false;
-        // Testing if all surrounding px are set.
-        // for mask in [frame.left, frame.right, frame.obstacles] {
-        //     if let Ok(255) = mask.at::<u8>(point) {
-        //         if inspect_point(mask, &point, 1, 255) {
-        //             blocked = true;
-        //         }
-        //     }
-        // }
+        let mut blocked = None;
 
-        // Testing if all surrounding px are unset
-        for mask in [frame.left, frame.right, frame.obstacles] {
-            if !inspect_point(mask, &point, 1, 0) {
-                blocked = true;
-                break;
-            }
-        }
-
-        if blocked {
+        if !inspect_point(frame.left, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
                 frame.reference_point().1 as f32,
             );
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
-            return Some(point_dist(&origin, &coords) as u32);
-        } else {
+            blocked = Some(Obstacle::LeftLine(point_dist(&origin, &coords) as u32));
+        } else if !inspect_point(frame.right, &point, 1, 0) {
+            let origin = (
+                frame.reference_point().0 as f32,
+                frame.reference_point().1 as f32,
+            );
+            let _coords = img_index_to_coord(&frame.size.0, &point);
+            let coords = (_coords.0 as f32, _coords.1 as f32);
+            blocked = Some(Obstacle::RightLine(point_dist(&origin, &coords) as u32));
+        } else if !inspect_point(frame.obstacles, &point, 1, 0) {
+            let origin = (
+                frame.reference_point().0 as f32,
+                frame.reference_point().1 as f32,
+            );
+            let _coords = img_index_to_coord(&frame.size.0, &point);
+            let coords = (_coords.0 as f32, _coords.1 as f32);
+            blocked = Some(Obstacle::Obstacle(point_dist(&origin, &coords) as u32));
+        }
+
+        if blocked.is_some() {
+            return blocked;
         }
     }
     None
