@@ -1,4 +1,5 @@
 use crate::motor::Drivable;
+use gotham::helpers::http::response::create_response;
 use gotham::middleware::state::StateMiddleware;
 use gotham::pipeline::{single_middleware, single_pipeline};
 use gotham::prelude::*;
@@ -85,12 +86,12 @@ pub fn disable<T: Drivable>(mut state: State) -> (State, String) {
 }
 
 pub fn serve<T: Drivable>(car: CarControl<T>) {
-    let index_file = NamedTempFile::new().unwrap();
-    std::fs::write(&index_file, LANDING_PAGE).unwrap();
+    let landing_page = tempfile::Builder::new().suffix(".html").tempfile().unwrap();
+    std::fs::write(&landing_page.path(), LANDING_PAGE_HTML).unwrap();
 
     let (chain, pipelines) = single_pipeline(single_middleware(StateMiddleware::new(car)));
     let router = build_router(chain, pipelines, |route| {
-        route.get("/").to_file(index_file.path());
+        route.get("/").to_file(landing_page.path());
         route.post("/start").to(enable::<T>);
         route.post("/stop").to(disable::<T>);
     });
@@ -98,7 +99,7 @@ pub fn serve<T: Drivable>(car: CarControl<T>) {
     gotham::start("0.0.0.0:80", router).unwrap();
 }
 
-const LANDING_PAGE: &str = "<!DOCTYPE html><html>
+const LANDING_PAGE_HTML: &str = "<!DOCTYPE html><html>
 <head>
     <h1>Immovable Object Controls</h1>
 </head>
