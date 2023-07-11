@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Range;
 
-use itertools::Itertools;
 use opencv::core::{bitwise_or, in_range, Mat, Rect, VecN, Vector};
 use opencv::imgproc::{cvt_color, COLOR_BGR2HSV, COLOR_GRAY2BGR};
 use opencv::prelude::*;
@@ -32,6 +32,8 @@ pub struct Frame<'a> {
     right: &'a Mat,
     /// Mat of the obstacles (boxes/cars).
     obstacles: &'a Mat,
+    /// Mat of the finish line.
+    finish: &'a Mat,
     /// Size of the frame.
     size: (i32, i32),
 }
@@ -43,7 +45,7 @@ impl<'a> Frame<'a> {
 }
 
 /// Models the HSV thresholds for object detection.
-pub struct ColorThresholds {
+pub struct DrivableConfig {
     pub left_lower: Vector<u8>,
     pub left_upper: Vector<u8>,
     pub right_lower: Vector<u8>,
@@ -52,14 +54,20 @@ pub struct ColorThresholds {
     pub box_upper: Vector<u8>,
     pub car_lower: Vector<u8>,
     pub car_upper: Vector<u8>,
+    pub finish_lower: Vector<u8>,
+    pub finish_upper: Vector<u8>,
+    pub p_gain: f64,
+    pub i_gain: f64,
+    pub i_max: f64,
+    pub speed: f64,
 }
 
-impl ColorThresholds {
+impl DrivableConfig {
     pub fn from_toml(path: &str) -> Self {
         let content = std::fs::read_to_string(path).unwrap();
         let table = content.parse::<Table>().unwrap();
         let mut vals = HashMap::new();
-        for key in ["left", "right", "box", "car"] {
+        for key in ["left", "right", "box", "car", "finish"] {
             vals.insert(key.to_owned(), Self::parse_threshold(&table, key));
         }
 
@@ -67,6 +75,7 @@ impl ColorThresholds {
         let right = vals.get("right").unwrap();
         let boxes = vals.get("box").unwrap();
         let car = vals.get("car").unwrap();
+        let finish = vals.get("finish").unwrap();
         Self {
             left_lower: Vector::from(left.0.clone()),
             left_upper: Vector::from(left.1.clone()),
@@ -76,6 +85,12 @@ impl ColorThresholds {
             box_upper: Vector::from(boxes.1.clone()),
             car_lower: Vector::from(car.0.clone()),
             car_upper: Vector::from(car.1.clone()),
+            finish_upper: Vector::from(finish.0.clone()),
+            finish_lower: Vector::from(finish.1.clone()),
+            p_gain: Self::parse_float(&table, "p_gain", Some(0.0..1.0)),
+            i_gain: Self::parse_float(&table, "i_gain", Some(0.0..1.0)),
+            i_max: Self::parse_float(&table, "i_max", None),
+            speed: Self::parse_float(&table, "speed", Some(0.0..1.0)),
         }
     }
 
@@ -114,6 +129,22 @@ impl ColorThresholds {
 
         (lower, upper)
     }
+
+    fn parse_float(table: &Table, key: &str, range: Option<Range<f64>>) -> f64 {
+        match table[key] {
+            Value::Float(val) => {
+                if let Some(_range) = range {
+                    if _range.contains(&val) {
+                        return val;
+                    } else {
+                        panic!("Value {key} must be in range {_range:?}");
+                    }
+                }
+                return val;
+            }
+            _ => panic!("Expected float for key {key}"),
+        }
+    }
 }
 
 /// Reads a video stream and tells a car which way to turn.
@@ -125,36 +156,27 @@ pub struct Pathfinder<T: Drivable> {
     /// Car to drive.
     pub car: CarControl<T>,
     /// Thresholds to use to choose driving angle.
-    pub thresholds: ColorThresholds,
+    pub config: DrivableConfig,
+    /// Debug video output.
     debug_out: Option<VideoWriter>,
     /// Integral for PID controller.
     angle_integral: f64,
-    /// PID proportional gain.
-    p_gain: f64,
-    /// PID integral gain.
-    i_gain: f64,
 }
 
 impl<T: Drivable + Send> Pathfinder<T> {
-    pub fn new(
-        car: CarControl<T>,
-        thresholds: ColorThresholds,
-        debug_out: Option<VideoWriter>,
-    ) -> Self {
+    pub fn new(car: CarControl<T>, config: DrivableConfig, debug_out: Option<VideoWriter>) -> Self {
         Pathfinder {
             angle: 0.0,
             roi: Rect {
                 x: 0,
-                y: 100,
+                y: 230,
                 width: 640,
-                height: 380,
+                height: 250,
             },
             car,
-            thresholds,
+            config,
             debug_out,
             angle_integral: 0.0,
-            p_gain: 0.75,
-            i_gain: 0.04,
         }
     }
 
@@ -188,16 +210,23 @@ impl<T: Drivable + Send> Pathfinder<T> {
         self.right_mask(&hsv_roi, &mut right_mask);
         assert_eq!(left_mask.cols(), right_mask.cols());
         assert_eq!(left_mask.rows(), right_mask.rows());
+
         let mut obstacle_mask = Mat::default();
         self.obstacle_mask(&hsv_roi, &mut obstacle_mask);
+
+        let mut finish_mask = Mat::default();
+        self.finish_mask(&hsv_roi, &mut finish_mask);
+
         let frame = Frame {
             left: &left_mask,
             right: &right_mask,
             obstacles: &obstacle_mask,
+            finish: &finish_mask,
             size: (left_mask.cols(), left_mask.rows()),
         };
 
-        let angle = self.pid_consider_angle(smart_choose_angle(&frame));
+        let angle = self.smart_choose_angle(&frame);
+        let ctrl_angle = self.pid_consider_angle(angle);
 
         // DEBUG
         if self.debug_out.is_some() {
@@ -224,7 +253,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
             self.angle_integral = -360.0;
         }
 
-        angle = (self.p_gain * angle) + (self.i_gain * self.angle_integral);
+        angle = (self.config.p_gain * angle) + (self.config.i_gain * self.angle_integral);
         if angle < -90.0 {
             angle = -90.0;
         } else if angle > 90.0 {
@@ -234,81 +263,115 @@ impl<T: Drivable + Send> Pathfinder<T> {
         angle
     }
 
+    /// Smarter choose_angle.
+    pub fn smart_choose_angle(&mut self, frame: &Frame) -> Angle {
+        let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
+        let mut test_angles: VecDeque<f64> = VecDeque::from(vec![0.0]);
+        let mut seen = HashSet::new();
+        while let Some(angle) = test_angles.pop_front() {
+            seen.insert(angle as i64);
+            match ray_dist(frame, &angle) {
+                None => return angle,
+                Some(obj) => {
+                    if let TrackObject::FinishLine(dist) = obj {
+                        if dist < 10 {
+                            self.car.disable();
+                            break;
+                        }
+                    }
+                    if obj.dist() > max_dist {
+                        (best_angle, max_dist) = (angle, obj.dist());
+                    }
+
+                    let new_angles = handle_track_obj(&seen, &angle, &obj);
+                    if new_angles.len() == 0 {
+                        break;
+                    } else {
+                        test_angles.extend(new_angles);
+                    }
+                }
+            }
+        }
+        best_angle
+    }
+
     pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(
-            src,
-            &self.thresholds.left_lower,
-            &self.thresholds.left_upper,
-            dst,
-        )
-        .unwrap();
+        in_range(src, &self.config.left_lower, &self.config.left_upper, dst).unwrap();
     }
 
     pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(
-            src,
-            &self.thresholds.right_lower,
-            &self.thresholds.right_upper,
-            dst,
-        )
-        .unwrap();
+        in_range(src, &self.config.right_lower, &self.config.right_upper, dst).unwrap();
     }
 
     pub fn obstacle_mask(&self, src: &Mat, dst: &mut Mat) {
         let mut box_mask = Mat::default();
         in_range(
             src,
-            &self.thresholds.box_lower,
-            &self.thresholds.box_upper,
+            &self.config.box_lower,
+            &self.config.box_upper,
             &mut box_mask,
         )
         .unwrap();
         let mut car_mask = Mat::default();
         in_range(
             src,
-            &self.thresholds.car_lower,
-            &self.thresholds.car_upper,
+            &self.config.car_lower,
+            &self.config.car_upper,
             &mut car_mask,
         )
         .unwrap();
 
         bitwise_or(&car_mask, &box_mask, dst, &Mat::default()).unwrap()
     }
+
+    pub fn finish_mask(&self, src: &Mat, dst: &mut Mat) {
+        in_range(
+            src,
+            &self.config.finish_lower,
+            &self.config.finish_upper,
+            dst,
+        )
+        .unwrap();
+    }
 }
 
 /// Chooses angle to drive at from a frame.
-pub fn choose_angle(frame: &Frame) -> Angle {
-    let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
-    for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
-        let angle = angle as f64 / 10.0;
-        match ray_dist(frame, &angle) {
-            None => return angle,
-            Some(obstacle) => {
-                let dist = match obstacle {
-                    TrackObject::LeftLine(dist)
-                    | TrackObject::RightLine(dist)
-                    | TrackObject::Obstacle(dist) => dist,
-                };
-                if dist > max_dist {
-                    max_dist = dist;
-                    best_angle = angle;
-                }
-            }
-        }
-    }
-    best_angle
-}
+// pub fn choose_angle(frame: &Frame) -> Angle {
+//     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
+//     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
+//         let angle = angle as f64 / 10.0;
+//         match ray_dist(frame, &angle) {
+//             None => return angle,
+//             Some(obstacle) => {
+//                 let dist = match obstacle {
+//                     TrackObject::LeftLine(dist)
+//                     | TrackObject::RightLine(dist)
+//                     | TrackObject::Obstacle(dist) => dist,
+//                 };
+//                 if dist > max_dist {
+//                     max_dist = dist;
+//                     best_angle = angle;
+//                 }
+//             }
+//         }
+//     }
+//     best_angle
+// }
 
 pub enum TrackObject {
     LeftLine(u32),
     RightLine(u32),
     Obstacle(u32),
+    FinishLine(u32),
 }
 
 impl TrackObject {
     pub fn dist(&self) -> u32 {
         match self {
-            Self::LeftLine(dist) | Self::RightLine(dist) | Self::Obstacle(dist) => {*dist}
+            Self::LeftLine(dist)
+            | Self::RightLine(dist)
+            | Self::Obstacle(dist)
+            | Self::FinishLine(dist) => *dist,
         }
     }
 }
@@ -317,6 +380,7 @@ impl TrackObject {
 pub fn handle_track_obj(seen: &HashSet<i64>, angle: &Angle, obj: &TrackObject) -> Vec<Angle> {
     let mut angles = vec![];
     match obj {
+        TrackObject::FinishLine(_) => {}
         TrackObject::LeftLine(_) => {
             let mut new_angle = angle + 5.0;
             while seen.contains(&(new_angle as i64)) {
@@ -354,32 +418,6 @@ pub fn handle_track_obj(seen: &HashSet<i64>, angle: &Angle, obj: &TrackObject) -
         }
     }
     angles
-}
-
-/// Smarter choose_angle.
-pub fn smart_choose_angle(frame: &Frame) -> Angle {
-    let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
-    let mut test_angles: VecDeque<f64> = VecDeque::from(vec![0.0]);
-    let mut seen = HashSet::new();
-    while let Some(angle) = test_angles.pop_front() {
-        seen.insert(angle as i64);
-        match ray_dist(frame, &angle) {
-            None => return angle,
-            Some(obj) => {
-                if obj.dist() > max_dist {
-                    (best_angle, max_dist) = (angle, obj.dist());
-                }
-
-                let new_angles = handle_track_obj(&seen, &angle, &obj);
-                if new_angles.len() == 0 {
-                    break
-                } else {
-                    test_angles.extend(new_angles);
-                }
-            }
-        }
-    }
-    best_angle
 }
 
 /// Returns all points around the center that are, at most, $dist points away.
@@ -437,6 +475,14 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
             blocked = Some(TrackObject::Obstacle(point_dist(&origin, &coords) as u32));
+        } else if !inspect_point(frame.finish, &point, 1, 0) {
+            let origin = (
+                frame.reference_point().0 as f32,
+                frame.reference_point().1 as f32,
+            );
+            let _coords = img_index_to_coord(&frame.size.0, &point);
+            let coords = (_coords.0 as f32, _coords.1 as f32);
+            blocked = Some(TrackObject::FinishLine(point_dist(&origin, &coords) as u32));
         }
 
         if blocked.is_some() {
