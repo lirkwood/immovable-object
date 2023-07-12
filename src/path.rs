@@ -186,8 +186,9 @@ impl<T: Drivable + Send> Pathfinder<T> {
         let mut bgr_img = Mat::default();
         while let Ok(true) = cap.read(&mut bgr_img) {
             let angle = self.consider_frame(&bgr_img);
-            println!("Angle: {angle}");
-            self.car.angle(angle, 35);
+            let speed = self.config.speed * 100.0;
+            println!("Angle: {angle}, Speed: {}", speed);
+            self.car.angle(angle, speed as isize);
 
             if !self.car.is_enabled() {
                 if self.debug_out.is_some() {
@@ -247,10 +248,10 @@ impl<T: Drivable + Send> Pathfinder<T> {
     /// Returns controlled value.
     fn pid_consider_angle(&mut self, mut angle: Angle) -> Angle {
         self.angle_integral += angle;
-        if self.angle_integral > 360.0 {
-            self.angle_integral = 360.0;
-        } else if self.angle_integral < -360.0 {
-            self.angle_integral = -360.0;
+        if self.angle_integral > 200.0 {
+            self.angle_integral = 200.0;
+        } else if self.angle_integral < -200.0 {
+            self.angle_integral = -200.0;
         }
 
         angle = (self.config.p_gain * angle) + (self.config.i_gain * self.angle_integral);
@@ -265,7 +266,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
 
     /// Smarter choose_angle.
     pub fn smart_choose_angle(&mut self, frame: &Frame) -> Angle {
-        let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
+        let (mut best_angle, mut max_dist): (Angle, Option<u32>) = (0.0, None);
         let mut test_angles: VecDeque<f64> = VecDeque::from(vec![0.0]);
         let mut seen = HashSet::new();
         while let Some(angle) = test_angles.pop_front() {
@@ -278,9 +279,17 @@ impl<T: Drivable + Send> Pathfinder<T> {
                             self.car.disable();
                             break;
                         }
+                        continue;
                     }
-                    if obj.dist() > max_dist {
-                        (best_angle, max_dist) = (angle, obj.dist());
+
+                    if obj.dist() < 150 {
+                        if let Some(dist) = max_dist {
+                            if obj.dist() > dist {
+                                (best_angle, max_dist) = (angle, Some(obj.dist()));
+                            }
+                        } else {
+                            (best_angle, max_dist) = (angle, Some(obj.dist()));
+                        }
                     }
 
                     let new_angles = handle_track_obj(&seen, &angle, &obj);
