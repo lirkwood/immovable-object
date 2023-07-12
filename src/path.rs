@@ -226,8 +226,8 @@ impl<T: Drivable + Send> Pathfinder<T> {
             size: (left_mask.cols(), left_mask.rows()),
         };
 
-        let angle = self.smart_choose_angle(&frame);
-        let ctrl_angle = self.pid_consider_angle(angle);
+        let mut angle = self.smart_choose_angle(&frame);
+        angle = self.pid_consider_angle(angle);
 
         // DEBUG
         if self.debug_out.is_some() {
@@ -343,29 +343,6 @@ impl<T: Drivable + Send> Pathfinder<T> {
         .unwrap();
     }
 }
-
-/// Chooses angle to drive at from a frame.
-// pub fn choose_angle(frame: &Frame) -> Angle {
-//     let (mut best_angle, mut max_dist): (Angle, u32) = (0.0, 0);
-//     for angle in (0..900).step_by(5).interleave((-900..0).step_by(5).rev()) {
-//         let angle = angle as f64 / 10.0;
-//         match ray_dist(frame, &angle) {
-//             None => return angle,
-//             Some(obstacle) => {
-//                 let dist = match obstacle {
-//                     TrackObject::LeftLine(dist)
-//                     | TrackObject::RightLine(dist)
-//                     | TrackObject::Obstacle(dist) => dist,
-//                 };
-//                 if dist > max_dist {
-//                     max_dist = dist;
-//                     best_angle = angle;
-//                 }
-//             }
-//         }
-//     }
-//     best_angle
-// }
 
 pub enum TrackObject {
     LeftLine(u32),

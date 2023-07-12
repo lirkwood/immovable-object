@@ -1,12 +1,10 @@
 use crate::motor::Drivable;
-use gotham::helpers::http::response::create_response;
 use gotham::middleware::state::StateMiddleware;
 use gotham::pipeline::{single_middleware, single_pipeline};
 use gotham::prelude::*;
 use gotham::router::build_router;
 use gotham::state::State;
 use std::sync::{Arc, Mutex, MutexGuard};
-use tempfile::NamedTempFile;
 
 #[derive(StateData)]
 pub struct CarControl<T: Drivable> {
