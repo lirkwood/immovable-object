@@ -140,7 +140,7 @@ impl DrivableConfig {
                         panic!("Value {key} must be in range {_range:?}");
                     }
                 }
-                return val;
+                val
             }
             _ => panic!("Expected float for key {key}"),
         }
@@ -293,7 +293,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
                     }
 
                     let new_angles = handle_track_obj(&seen, &angle, &obj);
-                    if new_angles.len() == 0 {
+                    if new_angles.is_empty() {
                         break;
                     } else {
                         test_angles.extend(new_angles);

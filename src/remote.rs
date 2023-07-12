@@ -85,7 +85,7 @@ pub fn disable<T: Drivable>(mut state: State) -> (State, String) {
 
 pub fn serve<T: Drivable>(car: CarControl<T>) {
     let landing_page = tempfile::Builder::new().suffix(".html").tempfile().unwrap();
-    std::fs::write(&landing_page.path(), LANDING_PAGE_HTML).unwrap();
+    std::fs::write(landing_page.path(), LANDING_PAGE_HTML).unwrap();
 
     let (chain, pipelines) = single_pipeline(single_middleware(StateMiddleware::new(car)));
     let router = build_router(chain, pipelines, |route| {
