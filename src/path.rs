@@ -25,20 +25,20 @@ pub fn img_index_to_coord(img_width: &i32, index: &i32) -> (i32, i32) {
 }
 
 /// Models a frame of the track by its masks.
-pub struct Frame<'a> {
+pub struct Frame {
     /// Mat of the left lines.
-    left: &'a Mat,
+    left: Mat,
     /// Mat of the right lines.
-    right: &'a Mat,
+    right: Mat,
     /// Mat of the obstacles (boxes/cars).
-    obstacles: &'a Mat,
+    obstacles: Mat,
     /// Mat of the finish line.
-    finish: &'a Mat,
+    finish: Mat,
     /// Size of the frame.
     size: (i32, i32),
 }
 
-impl<'a> Frame<'a> {
+impl Frame {
     pub fn reference_point(&self) -> (i32, i32) {
         (self.size.0 / 2, self.size.1)
     }
@@ -73,7 +73,7 @@ impl DrivableConfig {
 
         let left = vals.get("left").unwrap();
         let right = vals.get("right").unwrap();
-        let boxes = vals.get("box").unwrap();
+        let box_ = vals.get("box").unwrap();
         let car = vals.get("car").unwrap();
         let finish = vals.get("finish").unwrap();
         Self {
@@ -81,8 +81,8 @@ impl DrivableConfig {
             left_upper: Vector::from(left.1.clone()),
             right_lower: Vector::from(right.0.clone()),
             right_upper: Vector::from(right.1.clone()),
-            box_lower: Vector::from(boxes.0.clone()),
-            box_upper: Vector::from(boxes.1.clone()),
+            box_lower: Vector::from(box_.0.clone()),
+            box_upper: Vector::from(box_.1.clone()),
             car_lower: Vector::from(car.0.clone()),
             car_upper: Vector::from(car.1.clone()),
             finish_upper: Vector::from(finish.0.clone()),
@@ -201,38 +201,19 @@ impl<T: Drivable + Send> Pathfinder<T> {
 
     /// Chooses an angle to drive at from the lines in the frame.
     /// Returns the angle most commonly suggested by the last 5 frames.
-    pub fn consider_frame(&mut self, frame: &Mat) -> Angle {
+    pub fn consider_frame(&mut self, bgr: &Mat) -> Angle {
         let mut hsv = Mat::default();
-        cvt_color(&frame, &mut hsv, COLOR_BGR2HSV, 0).expect("Failed to convert img to HSV");
+        cvt_color(&bgr, &mut hsv, COLOR_BGR2HSV, 0).expect("Failed to convert img to HSV");
         let hsv_roi = Mat::roi(&hsv, self.roi).expect("Failed to slice region of HSV img.");
+        let frame = self.parse_frame(&hsv_roi);
 
-        let (mut left_mask, mut right_mask) = (Mat::default(), Mat::default());
-        self.left_mask(&hsv_roi, &mut left_mask);
-        self.right_mask(&hsv_roi, &mut right_mask);
-        assert_eq!(left_mask.cols(), right_mask.cols());
-        assert_eq!(left_mask.rows(), right_mask.rows());
-
-        let mut obstacle_mask = Mat::default();
-        self.obstacle_mask(&hsv_roi, &mut obstacle_mask);
-
-        let mut finish_mask = Mat::default();
-        self.finish_mask(&hsv_roi, &mut finish_mask);
-
-        let frame = Frame {
-            left: &left_mask,
-            right: &right_mask,
-            obstacles: &obstacle_mask,
-            finish: &finish_mask,
-            size: (left_mask.cols(), left_mask.rows()),
-        };
-
-        let mut angle = self.smart_choose_angle(&frame);
+        let mut angle = self.choose_angle(&frame);
         angle = self.pid_consider_angle(angle);
 
         // DEBUG
         if self.debug_out.is_some() {
             let mut line_mask = Mat::default();
-            bitwise_or(&left_mask, &right_mask, &mut line_mask, &Mat::default()).unwrap();
+            bitwise_or(&frame.left, &frame.right, &mut line_mask, &Mat::default()).unwrap();
             let mut bgr_lines = Mat::default();
             cvt_color(&line_mask, &mut bgr_lines, COLOR_GRAY2BGR, 0).unwrap();
 
@@ -242,6 +223,61 @@ impl<T: Drivable + Send> Pathfinder<T> {
         // DEBUG
 
         angle
+    }
+
+    /// Parses a Frame from an image matrix.
+    fn parse_frame(&self, frame: &Mat) -> Frame {
+        // TODO change to result
+        let (mut left_mask, mut right_mask) = (Mat::default(), Mat::default());
+        in_range(
+            frame,
+            &self.config.left_lower,
+            &self.config.left_upper,
+            &mut left_mask,
+        )
+        .unwrap();
+        in_range(
+            frame,
+            &self.config.right_lower,
+            &self.config.right_upper,
+            &mut right_mask,
+        )
+        .unwrap();
+
+        let (mut box_mask, mut car_mask) = (Mat::default(), Mat::default());
+        in_range(
+            frame,
+            &self.config.box_lower,
+            &self.config.box_upper,
+            &mut box_mask,
+        )
+        .unwrap();
+        in_range(
+            frame,
+            &self.config.car_lower,
+            &self.config.car_upper,
+            &mut car_mask,
+        )
+        .unwrap();
+        let mut obstacle_mask = Mat::default();
+        bitwise_or(&car_mask, &box_mask, &mut obstacle_mask, &Mat::default()).unwrap();
+
+        let mut finish_mask = Mat::default();
+        in_range(
+            frame,
+            &self.config.finish_lower,
+            &self.config.finish_upper,
+            &mut finish_mask,
+        )
+        .unwrap();
+
+        Frame {
+            left: left_mask,
+            right: right_mask,
+            obstacles: obstacle_mask,
+            finish: finish_mask,
+            size: (frame.cols(), frame.rows()),
+        }
     }
 
     /// Considers an angle as an input to the PID controller.
@@ -265,7 +301,7 @@ impl<T: Drivable + Send> Pathfinder<T> {
     }
 
     /// Smarter choose_angle.
-    pub fn smart_choose_angle(&mut self, frame: &Frame) -> Angle {
+    pub fn choose_angle(&mut self, frame: &Frame) -> Angle {
         let (mut best_angle, mut max_dist): (Angle, Option<u32>) = (0.0, None);
         let mut test_angles: VecDeque<f64> = VecDeque::from(vec![0.0]);
         let mut seen = HashSet::new();
@@ -302,45 +338,6 @@ impl<T: Drivable + Send> Pathfinder<T> {
             }
         }
         best_angle
-    }
-
-    pub fn left_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(src, &self.config.left_lower, &self.config.left_upper, dst).unwrap();
-    }
-
-    pub fn right_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(src, &self.config.right_lower, &self.config.right_upper, dst).unwrap();
-    }
-
-    pub fn obstacle_mask(&self, src: &Mat, dst: &mut Mat) {
-        let mut box_mask = Mat::default();
-        in_range(
-            src,
-            &self.config.box_lower,
-            &self.config.box_upper,
-            &mut box_mask,
-        )
-        .unwrap();
-        let mut car_mask = Mat::default();
-        in_range(
-            src,
-            &self.config.car_lower,
-            &self.config.car_upper,
-            &mut car_mask,
-        )
-        .unwrap();
-
-        bitwise_or(&car_mask, &box_mask, dst, &Mat::default()).unwrap()
-    }
-
-    pub fn finish_mask(&self, src: &Mat, dst: &mut Mat) {
-        in_range(
-            src,
-            &self.config.finish_lower,
-            &self.config.finish_upper,
-            dst,
-        )
-        .unwrap();
     }
 }
 
@@ -437,7 +434,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
     for point in cast_ray(&frame.size.0, &frame.size.1, angle) {
         let mut blocked = None;
 
-        if !inspect_point(frame.left, &point, 1, 0) {
+        if !inspect_point(&frame.left, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
                 frame.reference_point().1 as f32,
@@ -445,7 +442,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
             blocked = Some(TrackObject::LeftLine(point_dist(&origin, &coords) as u32));
-        } else if !inspect_point(frame.right, &point, 1, 0) {
+        } else if !inspect_point(&frame.right, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
                 frame.reference_point().1 as f32,
@@ -453,7 +450,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
             blocked = Some(TrackObject::RightLine(point_dist(&origin, &coords) as u32));
-        } else if !inspect_point(frame.obstacles, &point, 1, 0) {
+        } else if !inspect_point(&frame.obstacles, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
                 frame.reference_point().1 as f32,
@@ -461,7 +458,7 @@ pub fn ray_dist(frame: &Frame, angle: &Angle) -> Option<TrackObject> {
             let _coords = img_index_to_coord(&frame.size.0, &point);
             let coords = (_coords.0 as f32, _coords.1 as f32);
             blocked = Some(TrackObject::Obstacle(point_dist(&origin, &coords) as u32));
-        } else if !inspect_point(frame.finish, &point, 1, 0) {
+        } else if !inspect_point(&frame.finish, &point, 1, 0) {
             let origin = (
                 frame.reference_point().0 as f32,
                 frame.reference_point().1 as f32,
